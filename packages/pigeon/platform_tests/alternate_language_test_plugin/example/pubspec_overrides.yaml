@@ -1,6 +1,0 @@
-# melos_managed_dependency_overrides: alternate_language_test_plugin,shared_test_plugin_code
-dependency_overrides:
-  alternate_language_test_plugin:
-    path: ..
-  shared_test_plugin_code:
-    path: ../../shared_test_plugin_code
