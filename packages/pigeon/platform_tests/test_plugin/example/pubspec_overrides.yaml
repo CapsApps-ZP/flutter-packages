@@ -1,0 +1,6 @@
+# melos_managed_dependency_overrides: shared_test_plugin_code,test_plugin
+dependency_overrides:
+  shared_test_plugin_code:
+    path: ../../shared_test_plugin_code
+  test_plugin:
+    path: ..
