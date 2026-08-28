@@ -1,4 +1,0 @@
-# melos_managed_dependency_overrides: pigeon
-dependency_overrides:
-  pigeon:
-    path: ../..
