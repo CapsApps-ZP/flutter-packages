@@ -30,6 +30,7 @@ class SwiftOptions {
     this.errorClassName,
     this.includeErrorClass = true,
     this.accessLevel,
+    this.generateJson = false,
   });
 
   /// A copyright header that will get prepended to generated code.
@@ -53,6 +54,14 @@ class SwiftOptions {
   /// Defaults to null (no access modifier).
   final String? accessLevel;
 
+  /// Whether to generate `toJson`/`fromJson` (and their string variants) on
+  /// generated data classes.
+  ///
+  /// This is a fork-specific extension (not part of upstream Pigeon). When
+  /// enabled, each data class gets JSON (de)serialization matching the shared
+  /// contract; sealed hierarchies use a `"type"` discriminator.
+  final bool generateJson;
+
   /// Creates a [SwiftOptions] from a Map representation where:
   /// `x = SwiftOptions.fromList(x.toMap())`.
   static SwiftOptions fromList(Map<String, Object> map) {
@@ -63,6 +72,7 @@ class SwiftOptions {
       errorClassName: map['errorClassName'] as String?,
       includeErrorClass: map['includeErrorClass'] as bool? ?? true,
       accessLevel: map['accessLevel'] as String?,
+      generateJson: map['generateJson'] as bool? ?? false,
     );
   }
 
@@ -76,6 +86,7 @@ class SwiftOptions {
       if (errorClassName != null) 'errorClassName': errorClassName!,
       'includeErrorClass': includeErrorClass,
       if (accessLevel != null) 'accessLevel': accessLevel!,
+      'generateJson': generateJson,
     };
     return result;
   }
@@ -97,6 +108,7 @@ class InternalSwiftOptions extends InternalOptions {
     this.errorClassName,
     this.includeErrorClass = true,
     this.accessLevel,
+    this.generateJson = false,
   });
 
   /// Creates InternalSwiftOptions from SwiftOptions.
@@ -111,7 +123,8 @@ class InternalSwiftOptions extends InternalOptions {
            '',
        errorClassName = options.errorClassName,
        includeErrorClass = options.includeErrorClass,
-       accessLevel = options.accessLevel;
+       accessLevel = options.accessLevel,
+       generateJson = options.generateJson;
 
   /// A copyright header that will get prepended to generated code.
   final Iterable<String>? copyrightHeader;
@@ -136,6 +149,10 @@ class InternalSwiftOptions extends InternalOptions {
   /// Supported values: 'public', 'private', or null (no access modifier).
   /// Defaults to null (no access modifier).
   final String? accessLevel;
+
+  /// Whether to generate `toJson`/`fromJson` (and their string variants) on
+  /// generated data classes. Fork-specific extension; defaults to off.
+  final bool generateJson;
 }
 
 /// Options that control how Swift code will be generated for a specific

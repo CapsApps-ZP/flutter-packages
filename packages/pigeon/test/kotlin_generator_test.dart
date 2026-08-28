@@ -2100,4 +2100,224 @@ void main() {
     // There should be only one occurrence of 'is Foo' in the block
     expect(count, 1);
   });
+
+  group('generateJson', () {
+    TypeDeclaration td(
+      String name, {
+      bool nullable = false,
+      List<TypeDeclaration> args = const <TypeDeclaration>[],
+      Enum? associatedEnum,
+      Class? associatedClass,
+    }) => TypeDeclaration(
+      baseName: name,
+      isNullable: nullable,
+      typeArguments: args,
+      associatedEnum: associatedEnum,
+      associatedClass: associatedClass,
+    );
+
+    final Enum season = Enum(
+      name: 'Season',
+      members: <EnumMember>[
+        EnumMember(name: 'spring'),
+        EnumMember(name: 'readyToPlay'),
+      ],
+    );
+    final Class address = Class(
+      name: 'Address',
+      fields: <NamedType>[NamedType(name: 'city', type: td('String'))],
+    );
+    final Class person = Class(
+      name: 'Person',
+      fields: <NamedType>[
+        NamedType(name: 'name', type: td('String')),
+        NamedType(name: 'age', type: td('int')),
+        NamedType(name: 'height', type: td('double', nullable: true)),
+        NamedType(name: 'season', type: td('Season', associatedEnum: season)),
+        NamedType(
+          name: 'address',
+          type: td('Address', associatedClass: address),
+        ),
+        NamedType(
+          name: 'tags',
+          type: td('List', args: <TypeDeclaration>[td('String')]),
+        ),
+        NamedType(
+          name: 'scores',
+          type: td('Map', args: <TypeDeclaration>[td('int'), td('double')]),
+        ),
+        NamedType(name: 'avatar', type: td('Uint8List')),
+      ],
+    );
+    final Class gameScore = Class(
+      name: 'GameScore',
+      fields: <NamedType>[],
+      isSealed: true,
+    );
+    final Class shakeGameScore = Class(
+      name: 'ShakeGameScore',
+      superClassName: 'GameScore',
+      superClass: gameScore,
+      fields: <NamedType>[NamedType(name: 'shakes', type: td('int'))],
+    );
+    final Root root = Root(
+      apis: <Api>[],
+      classes: <Class>[person, address, gameScore, shakeGameScore],
+      enums: <Enum>[season],
+    );
+
+    String generate({bool generateJson = true}) {
+      final StringBuffer sink = StringBuffer();
+      KotlinGenerator().generate(
+        InternalKotlinOptions(
+          kotlinOut: 'NativeApi.kt',
+          generateJson: generateJson,
+        ),
+        root,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      return sink.toString();
+    }
+
+    test('emits helpers and org.json imports when enabled', () {
+      final String code = generate();
+      expect(code, contains('import org.json.JSONArray'));
+      expect(code, contains('import org.json.JSONObject'));
+      expect(code, contains('private fun pigeonJsonEncode(value: Any?): Any'));
+      expect(code, contains('private fun pigeonJsonDecode(value: Any?): Any?'));
+    });
+
+    test('emits nothing JSON-related when disabled', () {
+      final String code = generate(generateJson: false);
+      expect(code, isNot(contains('pigeonJsonEncode')));
+      expect(code, isNot(contains('import org.json')));
+      expect(code, isNot(contains('.toJsonValue()')));
+      expect(code, isNot(contains('fun Person.toJson(')));
+    });
+
+    test('encodes enums by their Dart constant name', () {
+      final String code = generate();
+      expect(
+        code,
+        contains('fun Season.toJsonValue(): String = when (this) {'),
+      );
+      expect(code, contains('Season.READY_TO_PLAY -> "readyToPlay"'));
+      expect(code, contains('"readyToPlay" -> Season.READY_TO_PLAY'));
+      expect(code, contains('fun seasonFromJsonValue(value: String): Season'));
+    });
+
+    test('concrete class toJson maps each field', () {
+      final String code = generate();
+      expect(code, contains('fun Person.toJson(): Map<String, Any?> = mapOf('));
+      expect(code, contains('"name" to name,'));
+      expect(code, contains('"season" to season.toJsonValue(),'));
+      expect(code, contains('"address" to address.toJson(),'));
+      expect(
+        code,
+        contains(
+          'fun Person.toJsonString(): String = '
+          'pigeonJsonEncode(toJson()).toString()',
+        ),
+      );
+    });
+
+    test('fromJson coerces number types and recurses', () {
+      final String code = generate();
+      expect(code, contains('object PersonJson {'));
+      expect(code, contains('age = (pigeonMap["age"] as Number).toLong(),'));
+      expect(
+        code,
+        contains('season = seasonFromJsonValue(pigeonMap["season"] as String),'),
+      );
+      expect(
+        code,
+        contains(
+          'address = AddressJson.fromJson('
+          'pigeonMap["address"] as Map<String, Any?>),',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'fun fromJsonString(json: String): Person = '
+          'fromJson(pigeonJsonDecode(JSONObject(json)) as Map<String, Any?>)',
+        ),
+      );
+    });
+
+    test('nullable field always writes the key and null-guards decode', () {
+      final String code = generate();
+      expect(code, contains('"height" to height,'));
+      expect(
+        code,
+        contains('height = (pigeonMap["height"])?.let { (it as Number).toDouble() },'),
+      );
+    });
+
+    test('Map keys are stringified', () {
+      final String code = generate();
+      expect(
+        code,
+        contains(
+          '"scores" to scores.entries.associate { (k, v) -> k.toString() to v },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'scores = (pigeonMap["scores"] as Map<*, *>).entries'
+          '.associate { (k, v) -> (k as String).toLong() to (v as Number).toDouble() },',
+        ),
+      );
+    });
+
+    test('List of primitives passes through', () {
+      final String code = generate();
+      expect(code, contains('"tags" to tags,'));
+      expect(
+        code,
+        contains('tags = (pigeonMap["tags"] as List<*>).map { it as String },'),
+      );
+    });
+
+    test('Uint8List encoded as base64', () {
+      final String code = generate();
+      expect(
+        code,
+        contains(
+          '"avatar" to android.util.Base64.encodeToString('
+          'avatar, android.util.Base64.NO_WRAP),',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'avatar = android.util.Base64.decode('
+          'pigeonMap["avatar"] as String, android.util.Base64.NO_WRAP),',
+        ),
+      );
+    });
+
+    test('sealed hierarchy uses a type discriminator and dispatches', () {
+      final String code = generate();
+      expect(
+        code,
+        contains('fun GameScore.toJson(): Map<String, Any?> = when (this) {'),
+      );
+      expect(code, contains('is ShakeGameScore -> this.toJson()'));
+      expect(code, contains('"type" to "ShakeGameScore",'));
+      expect(
+        code,
+        contains(
+          'fun fromJson(pigeonMap: Map<String, Any?>): GameScore = '
+          'when (pigeonMap["type"]) {',
+        ),
+      );
+      expect(
+        code,
+        contains('"ShakeGameScore" -> ShakeGameScoreJson.fromJson(pigeonMap)'),
+      );
+    });
+  });
 }

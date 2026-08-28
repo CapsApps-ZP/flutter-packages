@@ -9,6 +9,7 @@ import '../functional.dart';
 import '../generator.dart';
 import '../generator_tools.dart';
 import '../types/task_queue.dart';
+import 'kotlin_json.dart';
 import 'templates.dart';
 
 /// Documentation open symbol.
@@ -44,6 +45,7 @@ class KotlinOptions {
     this.errorClassName,
     this.includeErrorClass = true,
     this.fileSpecificClassNameComponent,
+    this.generateJson = false,
   });
 
   /// The package where the generated class will live.
@@ -64,6 +66,14 @@ class KotlinOptions {
   /// A String to augment class names to avoid cross file collisions.
   final String? fileSpecificClassNameComponent;
 
+  /// Whether to generate `toJson`/`fromJson` (and their string variants) on
+  /// generated data classes.
+  ///
+  /// This is a fork-specific extension (not part of upstream Pigeon). When
+  /// enabled, each data class gets JSON (de)serialization matching the shared
+  /// contract; sealed hierarchies use a `"type"` discriminator.
+  final bool generateJson;
+
   /// Creates a [KotlinOptions] from a Map representation where:
   /// `x = KotlinOptions.fromMap(x.toMap())`.
   static KotlinOptions fromMap(Map<String, Object> map) {
@@ -74,6 +84,7 @@ class KotlinOptions {
       includeErrorClass: map['includeErrorClass'] as bool? ?? true,
       fileSpecificClassNameComponent:
           map['fileSpecificClassNameComponent'] as String?,
+      generateJson: map['generateJson'] as bool? ?? false,
     );
   }
 
@@ -87,6 +98,7 @@ class KotlinOptions {
       'includeErrorClass': includeErrorClass,
       if (fileSpecificClassNameComponent != null)
         'fileSpecificClassNameComponent': fileSpecificClassNameComponent!,
+      'generateJson': generateJson,
     };
     return result;
   }
@@ -108,6 +120,7 @@ class InternalKotlinOptions extends InternalOptions {
     this.errorClassName,
     this.includeErrorClass = true,
     this.fileSpecificClassNameComponent,
+    this.generateJson = false,
   });
 
   /// Creates InternalKotlinOptions from KotlinOptions.
@@ -119,6 +132,7 @@ class InternalKotlinOptions extends InternalOptions {
        copyrightHeader = options.copyrightHeader ?? copyrightHeader,
        errorClassName = options.errorClassName,
        includeErrorClass = options.includeErrorClass,
+       generateJson = options.generateJson,
        fileSpecificClassNameComponent =
            options.fileSpecificClassNameComponent ??
            kotlinOut.split('/').lastOrNull?.split('.').first;
@@ -143,6 +157,10 @@ class InternalKotlinOptions extends InternalOptions {
 
   /// A String to augment class names to avoid cross file collisions.
   final String? fileSpecificClassNameComponent;
+
+  /// Whether to generate `toJson`/`fromJson` (and their string variants) on
+  /// generated data classes. Fork-specific extension; defaults to off.
+  final bool generateJson;
 }
 
 /// Options that control how Kotlin code will be generated for a specific
@@ -215,6 +233,10 @@ class KotlinGenerator extends StructuredGenerator<InternalKotlinOptions> {
     indent.writeln('import io.flutter.plugin.common.StandardMessageCodec');
     indent.writeln('import java.io.ByteArrayOutputStream');
     indent.writeln('import java.nio.ByteBuffer');
+    if (generatorOptions.generateJson) {
+      indent.writeln('import org.json.JSONArray');
+      indent.writeln('import org.json.JSONObject');
+    }
   }
 
   @override
@@ -257,6 +279,24 @@ class KotlinGenerator extends StructuredGenerator<InternalKotlinOptions> {
         });
       });
     });
+  }
+
+  @override
+  void writeDataClasses(
+    InternalKotlinOptions generatorOptions,
+    Root root,
+    Indent indent, {
+    required String dartPackageName,
+  }) {
+    super.writeDataClasses(
+      generatorOptions,
+      root,
+      indent,
+      dartPackageName: dartPackageName,
+    );
+    if (generatorOptions.generateJson) {
+      writeKotlinJson(root, indent);
+    }
   }
 
   @override
