@@ -128,6 +128,7 @@ void _writeSealedBaseJson(Root root, Indent indent, Class base) {
   }
 
   indent.newln();
+  // Instance methods live on the protocol extension (legal on `any $name`).
   indent.writeScoped('extension $name {', '}', () {
     indent.writeScoped('func toJson() -> [String: Any?] {', '}', () {
       indent.writeScoped('switch self {', '}', () {
@@ -138,7 +139,13 @@ void _writeSealedBaseJson(Root root, Indent indent, Class base) {
       });
     });
     _writeToJsonString(indent);
+  });
 
+  // Static decoders go in an enum namespace, not a protocol extension: Swift
+  // forbids calling a static member on a protocol metatype (`$name.fromJson`
+  // is an error), so mirror Kotlin's `object ${name}Json`.
+  indent.newln();
+  indent.writeScoped('enum ${name}Json {', '}', () {
     indent.writeScoped(
       'static func fromJson(_ pigeonMap: [String: Any?]) -> $name? {',
       '}',
@@ -158,7 +165,7 @@ void _writeSealedBaseJson(Root root, Indent indent, Class base) {
       '}',
       () {
         _writeDecodeGuard(indent);
-        indent.writeln('return $name.fromJson(pigeonMap)');
+        indent.writeln('return ${name}Json.fromJson(pigeonMap)');
       },
     );
   });
@@ -326,10 +333,14 @@ String _fromJsonNonNull(
     return '${type.baseName}.fromJsonValue($value as! String)';
   }
   if (type.isClass) {
-    // A sealed base's `fromJson` returns an optional; a non-null field of that
-    // type must force-unwrap it. Concrete classes return non-optional already.
-    final String bang = (type.associatedClass?.isSealed ?? false) ? '!' : '';
-    return '${type.baseName}.fromJson($value as! [String: Any?])$bang';
+    // A sealed base decodes via its `${name}Json` enum namespace (a protocol
+    // metatype can't carry a static `fromJson`) and returns an optional, so a
+    // non-null field of that type force-unwraps it. Concrete classes decode via
+    // their own extension static and return non-optional already.
+    if (type.associatedClass?.isSealed ?? false) {
+      return '${type.baseName}Json.fromJson($value as! [String: Any?])!';
+    }
+    return '${type.baseName}.fromJson($value as! [String: Any?])';
   }
   switch (type.baseName) {
     case 'String':
