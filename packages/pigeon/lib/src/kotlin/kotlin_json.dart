@@ -115,7 +115,9 @@ void _writeClassJson(Indent indent, Class classDefinition) {
       indent.writeln('"type" to "$name",');
     }
     for (final NamedType field in fields) {
-      indent.writeln('"${field.name}" to ${_toJson(field.name, field.type)},');
+      indent.writeln(
+        '"${field.name}" to ${_toJson(field.name, field.type, 0)},',
+      );
     }
   });
   indent.writeln(
@@ -130,7 +132,7 @@ void _writeClassJson(Indent indent, Class classDefinition) {
       () {
         for (final NamedType field in fields) {
           indent.writeln(
-            '${field.name} = ${_fromJson('pigeonMap["${field.name}"]', field.type)},',
+            '${field.name} = ${_fromJson('pigeonMap["${field.name}"]', field.type, 0)},',
           );
         }
       },
@@ -181,8 +183,18 @@ void _writeSealedBaseJson(Root root, Indent indent, Class base) {
   });
 }
 
+/// The lambda parameter name to use at nesting [depth]. The outermost lambda
+/// keeps the idiomatic `it`; nested ones get explicit names to avoid Kotlin's
+/// "name shadowed: it" warnings.
+String _param(int depth) => depth == 0 ? 'it' : 'p$depth';
+String _keyName(int depth) => depth == 0 ? 'k' : 'k$depth';
+String _valName(int depth) => depth == 0 ? 'v' : 'v$depth';
+
 /// A Kotlin expression that converts [expr] (of [type]) into a JSON-safe value.
-String _toJson(String expr, TypeDeclaration type) {
+///
+/// [depth] is the number of enclosing generated lambdas, used to name nested
+/// lambda parameters without shadowing.
+String _toJson(String expr, TypeDeclaration type, int depth) {
   if (type.isEnum) {
     return type.isNullable ? '$expr?.toJsonValue()' : '$expr.toJsonValue()';
   }
@@ -191,22 +203,29 @@ String _toJson(String expr, TypeDeclaration type) {
   }
   switch (type.baseName) {
     case 'Uint8List':
-      return type.isNullable
-          ? '$expr?.let { $_base64.encodeToString(it, $_base64.NO_WRAP) }'
-          : '$_base64.encodeToString($expr, $_base64.NO_WRAP)';
+      if (!type.isNullable) {
+        return '$_base64.encodeToString($expr, $_base64.NO_WRAP)';
+      }
+      final String p = _param(depth);
+      final String arrow = depth == 0 ? '' : '$p -> ';
+      return '$expr?.let { $arrow$_base64.encodeToString($p, $_base64.NO_WRAP) }';
     case 'List':
       final TypeDeclaration element = type.typeArguments.first;
       if (_isPassthrough(element)) {
         return expr;
       }
       final String q = type.isNullable ? '?' : '';
-      return '$expr$q.map { ${_toJson('it', element)} }';
+      final String p = _param(depth);
+      final String arrow = depth == 0 ? '' : '$p -> ';
+      return '$expr$q.map { $arrow${_toJson(p, element, depth + 1)} }';
     case 'Map':
       final TypeDeclaration key = type.typeArguments[0];
       final TypeDeclaration value = type.typeArguments[1];
       final String q = type.isNullable ? '?' : '';
-      return '$expr$q.entries$q.associate { (k, v) -> '
-          '${_toJsonKey('k', key)} to ${_toJson('v', value)} }';
+      final String k = _keyName(depth);
+      final String v = _valName(depth);
+      return '$expr$q.entries$q.associate { ($k, $v) -> '
+          '${_toJsonKey(k, key)} to ${_toJson(v, value, depth + 1)} }';
     default:
       // int/double/String/bool/Object are already JSON-safe.
       return expr;
@@ -225,16 +244,18 @@ String _toJsonKey(String expr, TypeDeclaration key) {
 }
 
 /// A Kotlin expression that parses [raw] (an `Any?` read from the map) into
-/// a value of [type].
-String _fromJson(String raw, TypeDeclaration type) {
+/// a value of [type]. [depth] tracks enclosing lambdas (see [_param]).
+String _fromJson(String raw, TypeDeclaration type, int depth) {
   if (type.isNullable) {
-    return '($raw)?.let { ${_fromJsonNonNull('it', type)} }';
+    final String p = _param(depth);
+    final String arrow = depth == 0 ? '' : '$p -> ';
+    return '($raw)?.let { $arrow${_fromJsonNonNull(p, type, depth + 1)} }';
   }
-  return _fromJsonNonNull(raw, type);
+  return _fromJsonNonNull(raw, type, depth);
 }
 
 /// A Kotlin expression that parses the non-null [value] into [type].
-String _fromJsonNonNull(String value, TypeDeclaration type) {
+String _fromJsonNonNull(String value, TypeDeclaration type, int depth) {
   if (type.isEnum) {
     return '${_lowerFirst(type.baseName)}FromJsonValue($value as String)';
   }
@@ -254,12 +275,16 @@ String _fromJsonNonNull(String value, TypeDeclaration type) {
       return '$_base64.decode($value as String, $_base64.NO_WRAP)';
     case 'List':
       final TypeDeclaration element = type.typeArguments.first;
-      return '($value as List<*>).map { ${_fromJson('it', element)} }';
+      final String p = _param(depth);
+      final String arrow = depth == 0 ? '' : '$p -> ';
+      return '($value as List<*>).map { $arrow${_fromJson(p, element, depth + 1)} }';
     case 'Map':
       final TypeDeclaration key = type.typeArguments[0];
       final TypeDeclaration valueType = type.typeArguments[1];
-      return '($value as Map<*, *>).entries.associate { (k, v) -> '
-          '${_fromJsonKey('k', key)} to ${_fromJson('v', valueType)} }';
+      final String k = _keyName(depth);
+      final String v = _valName(depth);
+      return '($value as Map<*, *>).entries.associate { ($k, $v) -> '
+          '${_fromJsonKey(k, key)} to ${_fromJson(v, valueType, depth + 1)} }';
     default:
       // Object / dynamic: pass through untouched.
       return value;

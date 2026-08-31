@@ -2320,4 +2320,249 @@ void main() {
       );
     });
   });
+
+  group('generateJson type matrix', () {
+    TypeDeclaration td(
+      String name, {
+      bool nullable = false,
+      List<TypeDeclaration> args = const <TypeDeclaration>[],
+      Enum? associatedEnum,
+      Class? associatedClass,
+    }) => TypeDeclaration(
+      baseName: name,
+      isNullable: nullable,
+      typeArguments: args,
+      associatedEnum: associatedEnum,
+      associatedClass: associatedClass,
+    );
+
+    final Enum e = Enum(
+      name: 'E',
+      members: <EnumMember>[EnumMember(name: 'a'), EnumMember(name: 'bTwo')],
+    );
+    final Class inner = Class(
+      name: 'Inner',
+      fields: <NamedType>[NamedType(name: 'x', type: td('int'))],
+    );
+    final Class base = Class(
+      name: 'Base',
+      fields: <NamedType>[],
+      isSealed: true,
+    );
+    final Class subA = Class(
+      name: 'SubA',
+      superClassName: 'Base',
+      superClass: base,
+      fields: <NamedType>[NamedType(name: 'a', type: td('int'))],
+    );
+    final Class subB = Class(
+      name: 'SubB',
+      superClassName: 'Base',
+      superClass: base,
+      fields: <NamedType>[NamedType(name: 'b', type: td('String'))],
+    );
+
+    TypeDeclaration listOf(TypeDeclaration x) =>
+        td('List', args: <TypeDeclaration>[x]);
+    TypeDeclaration mapOf(TypeDeclaration k, TypeDeclaration v) =>
+        td('Map', args: <TypeDeclaration>[k, v]);
+
+    final Class kitchen = Class(
+      name: 'Kitchen',
+      fields: <NamedType>[
+        NamedType(name: 'flag', type: td('bool')),
+        NamedType(name: 'anything', type: td('Object')),
+        NamedType(name: 'nEnum', type: td('E', nullable: true, associatedEnum: e)),
+        NamedType(
+          name: 'nInner',
+          type: td('Inner', nullable: true, associatedClass: inner),
+        ),
+        NamedType(name: 'nBytes', type: td('Uint8List', nullable: true)),
+        NamedType(name: 'enumList', type: listOf(td('E', associatedEnum: e))),
+        NamedType(
+          name: 'classList',
+          type: listOf(td('Inner', associatedClass: inner)),
+        ),
+        NamedType(name: 'nElemList', type: listOf(td('String', nullable: true))),
+        NamedType(
+          name: 'nClassElemList',
+          type: listOf(td('Inner', nullable: true, associatedClass: inner)),
+        ),
+        NamedType(
+          name: 'enumKeyMap',
+          type: mapOf(td('E', associatedEnum: e), td('int')),
+        ),
+        NamedType(
+          name: 'classValMap',
+          type: mapOf(td('String'), td('Inner', associatedClass: inner)),
+        ),
+        NamedType(
+          name: 'nValMap',
+          type: mapOf(td('String'), td('int', nullable: true)),
+        ),
+        NamedType(name: 'nestedList', type: listOf(listOf(td('int')))),
+        NamedType(
+          name: 'mapOfList',
+          type: mapOf(td('String'), listOf(td('int'))),
+        ),
+        NamedType(name: 'single', type: td('Base', associatedClass: base)),
+        NamedType(
+          name: 'polyList',
+          type: listOf(td('Base', nullable: true, associatedClass: base)),
+        ),
+      ],
+    );
+    final Root root = Root(
+      apis: <Api>[],
+      classes: <Class>[kitchen, inner, base, subA, subB],
+      enums: <Enum>[e],
+    );
+
+    late final String code;
+    setUpAll(() {
+      final StringBuffer sink = StringBuffer();
+      KotlinGenerator().generate(
+        const InternalKotlinOptions(kotlinOut: 'NativeApi.kt', generateJson: true),
+        root,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      code = sink.toString();
+    });
+
+    test('bool and Object pass through', () {
+      expect(code, contains('"flag" to flag,'));
+      expect(code, contains('flag = pigeonMap["flag"] as Boolean,'));
+      expect(code, contains('"anything" to anything,'));
+      expect(code, contains('anything = pigeonMap["anything"],'));
+    });
+
+    test('nullable enum/class/bytes null-guard', () {
+      expect(code, contains('"nEnum" to nEnum?.toJsonValue(),'));
+      expect(
+        code,
+        contains('nEnum = (pigeonMap["nEnum"])?.let { eFromJsonValue(it as String) },'),
+      );
+      expect(
+        code,
+        contains(
+          'nInner = (pigeonMap["nInner"])?.let '
+          '{ InnerJson.fromJson(it as Map<String, Any?>) },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          '"nBytes" to nBytes?.let '
+          '{ android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) },',
+        ),
+      );
+    });
+
+    test('List of enums and classes recurses per element', () {
+      expect(code, contains('"enumList" to enumList.map { it.toJsonValue() },'));
+      expect(
+        code,
+        contains(
+          'enumList = (pigeonMap["enumList"] as List<*>).map { eFromJsonValue(it as String) },',
+        ),
+      );
+      expect(code, contains('"classList" to classList.map { it.toJson() },'));
+      expect(
+        code,
+        contains(
+          'classList = (pigeonMap["classList"] as List<*>).map '
+          '{ InnerJson.fromJson(it as Map<String, Any?>) },',
+        ),
+      );
+    });
+
+    test('enum map key and class map value', () {
+      expect(
+        code,
+        contains(
+          '"enumKeyMap" to enumKeyMap.entries.associate { (k, v) -> k.toJsonValue() to v },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'enumKeyMap = (pigeonMap["enumKeyMap"] as Map<*, *>).entries'
+          '.associate { (k, v) -> eFromJsonValue(k as String) to (v as Number).toLong() },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'classValMap = (pigeonMap["classValMap"] as Map<*, *>).entries'
+          '.associate { (k, v) -> k as String to InnerJson.fromJson(v as Map<String, Any?>) },',
+        ),
+      );
+    });
+
+    test('polymorphic single field dispatches through the sealed base', () {
+      expect(code, contains('"single" to single.toJson(),'));
+      expect(
+        code,
+        contains('single = BaseJson.fromJson(pigeonMap["single"] as Map<String, Any?>),'),
+      );
+    });
+
+    test('sealed base with multiple subclasses is exhaustive', () {
+      expect(code, contains('is SubA -> this.toJson()'));
+      expect(code, contains('is SubB -> this.toJson()'));
+      expect(code, contains('"SubA" -> SubAJson.fromJson(pigeonMap)'));
+      expect(code, contains('"SubB" -> SubBJson.fromJson(pigeonMap)'));
+    });
+
+    test('nested lambdas use non-shadowing parameter names', () {
+      // Nullable element in a list.
+      expect(
+        code,
+        contains(
+          'nElemList = (pigeonMap["nElemList"] as List<*>).map '
+          '{ (it)?.let { p1 -> p1 as String } },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'nClassElemList = (pigeonMap["nClassElemList"] as List<*>).map '
+          '{ (it)?.let { p1 -> InnerJson.fromJson(p1 as Map<String, Any?>) } },',
+        ),
+      );
+      // Nullable map value.
+      expect(
+        code,
+        contains(
+          'nValMap = (pigeonMap["nValMap"] as Map<*, *>).entries'
+          '.associate { (k, v) -> k as String to (v)?.let { p1 -> (p1 as Number).toLong() } },',
+        ),
+      );
+      // Nested list.
+      expect(
+        code,
+        contains(
+          'nestedList = (pigeonMap["nestedList"] as List<*>).map '
+          '{ (it as List<*>).map { p1 -> (p1 as Number).toLong() } },',
+        ),
+      );
+      // List of nullable polymorphic base.
+      expect(
+        code,
+        contains(
+          'polyList = (pigeonMap["polyList"] as List<*>).map '
+          '{ (it)?.let { p1 -> BaseJson.fromJson(p1 as Map<String, Any?>) } },',
+        ),
+      );
+    });
+
+    test('no `it` is shadowed by an inner lambda', () {
+      // The two shadow shapes that would trigger Kotlin's "name shadowed: it".
+      expect(code, isNot(contains('?.let { it as List')));
+      expect(code, isNot(contains('.map { (it)?.let { it ')));
+      expect(code, isNot(contains('.map { (it as List<*>).map { (it')));
+      expect(code, isNot(contains('associate { (k, v) -> k to (v as List<*>).map { (it')));
+    });
+  });
 }
