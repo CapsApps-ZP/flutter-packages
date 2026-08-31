@@ -255,6 +255,20 @@ Future<int> generateTestPigeons({
   if (jsonKitchenSwiftCode != 0) {
     return jsonKitchenSwiftCode;
   }
+
+  // Dart half of the same kitchen-sink, generated into the shared Dart test
+  // code. Its round-trip test (json_kitchen_roundtrip_test.dart) runs as a plain
+  // `flutter test`, no native toolchain required.
+  final int jsonKitchenDartCode = await runPigeon(
+    input: './pigeons/json_kitchen.dart',
+    dartOut: '$sharedDartOutputBase/lib/src/generated/json_kitchen.gen.dart',
+    dartPackageName: 'pigeon_integration_tests',
+    suppressVersion: true,
+    dartGenerateJson: true,
+  );
+  if (jsonKitchenDartCode != 0) {
+    return jsonKitchenDartCode;
+  }
   return 0;
 }
 
@@ -274,6 +288,7 @@ Future<int> runPigeon({
   String? cppNamespace,
   String? dartOut,
   String? dartTestOut,
+  bool dartGenerateJson = false,
   String? gobjectHeaderOut,
   String? gobjectSourceOut,
   String? gobjectModule,
@@ -325,7 +340,7 @@ Future<int> runPigeon({
       copyrightHeader: copyrightHeader,
       dartOut: dartOut,
       dartTestOut: dartTestOut,
-      dartOptions: const DartOptions(),
+      dartOptions: DartOptions(generateJson: dartGenerateJson),
       cppHeaderOut: cppHeaderOut,
       cppSourceOut: cppSourceOut,
       cppOptions: CppOptions(namespace: cppNamespace),
