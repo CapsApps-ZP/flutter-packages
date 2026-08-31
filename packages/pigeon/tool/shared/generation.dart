@@ -221,6 +221,40 @@ Future<int> generateTestPigeons({
       return generateCode;
     }
   }
+
+  // Kitchen-sink for the fork-specific `generateJson` emitter: Kotlin-only, with
+  // JSON (de)serialization enabled, so JsonKitchenRoundtripTest can compile and
+  // round-trip the entire type matrix. Other languages are intentionally skipped
+  // here (Swift JSON support is wired separately).
+  final int jsonKitchenCode = await runPigeon(
+    input: './pigeons/json_kitchen.dart',
+    dartPackageName: 'pigeon_integration_tests',
+    suppressVersion: true,
+    kotlinOut:
+        '$outputBase/android/src/main/kotlin/com/example/test_plugin/JsonKitchen.gen.kt',
+    kotlinPackage: 'com.example.test_plugin',
+    kotlinIncludeErrorClass: false,
+    kotlinGenerateJson: true,
+  );
+  if (jsonKitchenCode != 0) {
+    return jsonKitchenCode;
+  }
+
+  // Swift half of the same kitchen-sink, generated into the darwin test plugin
+  // so JsonKitchenRoundtripTests can compile and round-trip the identical type
+  // matrix. Both languages target byte-identical JSON from the one contract.
+  final int jsonKitchenSwiftCode = await runPigeon(
+    input: './pigeons/json_kitchen.dart',
+    dartPackageName: 'pigeon_integration_tests',
+    suppressVersion: true,
+    swiftOut:
+        '$outputBase/darwin/$testPluginName/Sources/$testPluginName/JsonKitchen.gen.swift',
+    swiftIncludeErrorClass: false,
+    swiftGenerateJson: true,
+  );
+  if (jsonKitchenSwiftCode != 0) {
+    return jsonKitchenSwiftCode;
+  }
   return 0;
 }
 
@@ -230,7 +264,9 @@ Future<int> runPigeon({
   String? kotlinPackage,
   String? kotlinErrorClassName,
   bool kotlinIncludeErrorClass = true,
+  bool kotlinGenerateJson = false,
   bool swiftIncludeErrorClass = true,
+  bool swiftGenerateJson = false,
   String? swiftOut,
   String? swiftErrorClassName,
   String? cppHeaderOut,
@@ -304,6 +340,7 @@ Future<int> runPigeon({
         package: kotlinPackage,
         errorClassName: kotlinErrorClassName,
         includeErrorClass: kotlinIncludeErrorClass,
+        generateJson: kotlinGenerateJson,
       ),
       objcHeaderOut: objcHeaderOut,
       objcSourceOut: objcSourceOut,
@@ -315,6 +352,7 @@ Future<int> runPigeon({
       swiftOptions: SwiftOptions(
         errorClassName: swiftErrorClassName,
         includeErrorClass: swiftIncludeErrorClass,
+        generateJson: swiftGenerateJson,
       ),
       basePath: basePath,
       dartPackageName: dartPackageName,
