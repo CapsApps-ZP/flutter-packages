@@ -2077,6 +2077,7 @@ void main() {
         contains('case let value as ShakeGameScore: return value.toJson()'),
       );
       expect(code, contains('"type": "ShakeGameScore",'));
+      expect(code, contains('enum GameScoreJson {'));
       expect(
         code,
         contains(
@@ -2292,7 +2293,7 @@ void main() {
       expect(
         code,
         contains(
-          'single: Base.fromJson((pigeonMap["single"] ?? nil) as! [String: Any?])!',
+          'single: BaseJson.fromJson((pigeonMap["single"] ?? nil) as! [String: Any?])!',
         ),
       );
     });
@@ -2351,7 +2352,7 @@ void main() {
         code,
         contains(
           'polyList: ((pigeonMap["polyList"] ?? nil) as! [Any?]).map '
-          '{ p0 in p0.map { p1 in Base.fromJson(p1 as! [String: Any?])! } }',
+          '{ p0 in p0.map { p1 in BaseJson.fromJson(p1 as! [String: Any?])! } }',
         ),
       );
     });

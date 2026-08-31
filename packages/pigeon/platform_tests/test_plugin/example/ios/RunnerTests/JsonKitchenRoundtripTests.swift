@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import Flutter
 import XCTest
 
 @testable import test_plugin
@@ -20,8 +21,36 @@ import XCTest
 // swapped/dropped/mis-typed field fails. No Base64 stubbing is needed on Apple
 // platforms: Data.base64EncodedString()/Data(base64Encoded:) are real.
 final class JsonKitchenRoundtripTests: XCTestCase {
+  /// Re-serializes a JSON string with sorted keys so two encodings can be
+  /// compared order-independently (JSONSerialization does not preserve or sort
+  /// object key order otherwise).
+  private func canonicalJson(_ json: String?) -> Data? {
+    guard let json = json,
+      let data = json.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let canonical = try? JSONSerialization.data(
+        withJSONObject: object, options: [.sortedKeys])
+    else { return nil }
+    return canonical
+  }
+
+  // KsAll holds sealed-protocol fields (shape/shapes/nShape). Pigeon's generated
+  // Swift `==` (deepEquals over toList()) can't compare those: the sealed
+  // subtypes KsCircle/KsSquare define `==`/`hash` but do not conform to
+  // Hashable, so deepEquals bails to `false` on any KsShape element. So equality
+  // is asserted at the JSON level — re-encode both sides with sorted keys and
+  // compare bytes, which proves every field survived the round-trip. (The
+  // KsShape-only polymorphic test below can still use direct `==`, since that
+  // compares concrete KsCircle/KsSquare whose own `==` works.)
   private func assertRoundtrip(_ original: KsAll, _ restored: KsAll?) {
-    XCTAssertEqual(restored, original, "round-trip mismatch for KsAll")
+    guard let restored = restored else {
+      return XCTFail("round-trip produced nil")
+    }
+    let expected = canonicalJson(original.toJsonString())
+    XCTAssertNotNil(expected, "original produced no JSON")
+    XCTAssertEqual(
+      canonicalJson(restored.toJsonString()), expected,
+      "KsAll JSON round-trip mismatch")
   }
 
   func testKsAllFullyPopulatedRoundtripsThroughString() throws {
@@ -51,12 +80,12 @@ final class JsonKitchenRoundtripTests: XCTestCase {
     // asserted alongside value equality.
     let circle = KsCircle(radius: 3.25)
     let circleJson = try XCTUnwrap(circle.toJsonString())
-    let circleBack = try XCTUnwrap(KsShape.fromJsonString(circleJson) as? KsCircle)
+    let circleBack = try XCTUnwrap(KsShapeJson.fromJsonString(circleJson) as? KsCircle)
     XCTAssertTrue(circleBack == circle)
 
     let square = KsSquare(side: 8)
     let squareJson = try XCTUnwrap(square.toJsonString())
-    let squareBack = try XCTUnwrap(KsShape.fromJsonString(squareJson) as? KsSquare)
+    let squareBack = try XCTUnwrap(KsShapeJson.fromJsonString(squareJson) as? KsSquare)
     XCTAssertTrue(squareBack == square)
   }
 
