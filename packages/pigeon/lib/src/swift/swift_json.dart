@@ -24,16 +24,24 @@ import '../generator_tools.dart';
 ///
 /// Emits, in order: shared encode/decode helpers, per-enum name mappings, and
 /// per-type `toJson`/`toJsonString`/`fromJson`/`fromJsonString` extensions.
-void writeSwiftJson(Root root, Indent indent) {
+///
+/// [accessLevel] mirrors `SwiftOptions.accessLevel` and is applied to every
+/// generated member and the `<Class>Json` namespaces, so that when the data
+/// types are `public` their JSON (de)serialization is reachable across the
+/// module boundary too (Swift extension members are `internal` by default).
+/// The `pigeonJsonEncode`/`pigeonJsonDecode` helpers stay `private` — they are
+/// only called from within the generated module.
+void writeSwiftJson(Root root, Indent indent, {String? accessLevel}) {
+  final String access = accessLevel != null ? '$accessLevel ' : '';
   _writeHelpers(indent);
   for (final Enum anEnum in root.enums) {
-    _writeEnumJson(indent, anEnum);
+    _writeEnumJson(indent, anEnum, access);
   }
   for (final Class classDefinition in root.classes) {
     if (classDefinition.isSealed) {
-      _writeSealedBaseJson(root, indent, classDefinition);
+      _writeSealedBaseJson(root, indent, classDefinition, access);
     } else {
-      _writeClassJson(indent, classDefinition);
+      _writeClassJson(indent, classDefinition, access);
     }
   }
 }
@@ -64,18 +72,18 @@ void _writeHelpers(Indent indent) {
   });
 }
 
-void _writeEnumJson(Indent indent, Enum anEnum) {
+void _writeEnumJson(Indent indent, Enum anEnum, String access) {
   final String name = anEnum.name;
   indent.newln();
   indent.writeScoped('extension $name {', '}', () {
-    indent.writeScoped('func toJsonValue() -> String {', '}', () {
+    indent.writeScoped('${access}func toJsonValue() -> String {', '}', () {
       indent.writeScoped('switch self {', '}', () {
         for (final EnumMember member in anEnum.members) {
           indent.writeln('case .${_camelCase(member.name)}: return "${member.name}"');
         }
       });
     });
-    indent.writeScoped('static func fromJsonValue(_ value: String) -> $name {', '}', () {
+    indent.writeScoped('${access}static func fromJsonValue(_ value: String) -> $name {', '}', () {
       indent.writeScoped('switch value {', '}', () {
         for (final EnumMember member in anEnum.members) {
           indent.writeln('case "${member.name}": return .${_camelCase(member.name)}');
@@ -86,7 +94,7 @@ void _writeEnumJson(Indent indent, Enum anEnum) {
   });
 }
 
-void _writeClassJson(Indent indent, Class classDefinition) {
+void _writeClassJson(Indent indent, Class classDefinition, String access) {
   final String name = classDefinition.name;
   final bool isSubclass = classDefinition.superClassName != null;
   final List<NamedType> fields =
@@ -94,11 +102,11 @@ void _writeClassJson(Indent indent, Class classDefinition) {
 
   indent.newln();
   indent.writeScoped('extension $name {', '}', () {
-    _writeToJson(indent, fields, typeName: isSubclass ? name : null);
-    _writeToJsonString(indent);
+    _writeToJson(indent, fields, access, typeName: isSubclass ? name : null);
+    _writeToJsonString(indent, access);
 
     indent.writeScoped(
-      'static func fromJson(_ pigeonMap: [String: Any?]) -> $name {',
+      '${access}static func fromJson(_ pigeonMap: [String: Any?]) -> $name {',
       '}',
       () {
         indent.writeScoped('return $name(', ')', () {
@@ -114,11 +122,11 @@ void _writeClassJson(Indent indent, Class classDefinition) {
         });
       },
     );
-    _writeFromJsonString(indent, name);
+    _writeFromJsonString(indent, name, access);
   });
 }
 
-void _writeSealedBaseJson(Root root, Indent indent, Class base) {
+void _writeSealedBaseJson(Root root, Indent indent, Class base, String access) {
   final String name = base.name;
   final List<Class> subclasses = root.classes
       .where((Class c) => c.superClassName == name)
@@ -130,7 +138,7 @@ void _writeSealedBaseJson(Root root, Indent indent, Class base) {
   indent.newln();
   // Instance methods live on the protocol extension (legal on `any $name`).
   indent.writeScoped('extension $name {', '}', () {
-    indent.writeScoped('func toJson() -> [String: Any?] {', '}', () {
+    indent.writeScoped('${access}func toJson() -> [String: Any?] {', '}', () {
       indent.writeScoped('switch self {', '}', () {
         for (final Class sub in subclasses) {
           indent.writeln('case let value as ${sub.name}: return value.toJson()');
@@ -138,16 +146,18 @@ void _writeSealedBaseJson(Root root, Indent indent, Class base) {
         indent.writeln('default: return [:]');
       });
     });
-    _writeToJsonString(indent);
+    _writeToJsonString(indent, access);
   });
 
   // Static decoders go in an enum namespace, not a protocol extension: Swift
   // forbids calling a static member on a protocol metatype (`$name.fromJson`
-  // is an error), so mirror Kotlin's `object ${name}Json`.
+  // is an error), so mirror Kotlin's `object ${name}Json`. The enum itself is
+  // access-prefixed because a type's members are `internal` by default even
+  // inside a `public` enum, unlike extension members.
   indent.newln();
-  indent.writeScoped('enum ${name}Json {', '}', () {
+  indent.writeScoped('${access}enum ${name}Json {', '}', () {
     indent.writeScoped(
-      'static func fromJson(_ pigeonMap: [String: Any?]) -> $name? {',
+      '${access}static func fromJson(_ pigeonMap: [String: Any?]) -> $name? {',
       '}',
       () {
         indent.writeScoped('switch (pigeonMap["type"] ?? nil) as? String {', '}', () {
@@ -161,7 +171,7 @@ void _writeSealedBaseJson(Root root, Indent indent, Class base) {
     // The base's `fromJson` already returns an optional, so `fromJsonString`
     // forwards it directly rather than wrapping a non-optional result.
     indent.writeScoped(
-      'static func fromJsonString(_ json: String) -> $name? {',
+      '${access}static func fromJsonString(_ json: String) -> $name? {',
       '}',
       () {
         _writeDecodeGuard(indent);
@@ -175,8 +185,13 @@ void _writeSealedBaseJson(Root root, Indent indent, Class base) {
 ///
 /// When [typeName] is non-null the class is a sealed subclass and a `"type"`
 /// discriminator with that value is emitted first.
-void _writeToJson(Indent indent, List<NamedType> fields, {String? typeName}) {
-  indent.writeScoped('func toJson() -> [String: Any?] {', '}', () {
+void _writeToJson(
+  Indent indent,
+  List<NamedType> fields,
+  String access, {
+  String? typeName,
+}) {
+  indent.writeScoped('${access}func toJson() -> [String: Any?] {', '}', () {
     if (fields.isEmpty && typeName == null) {
       indent.writeln('return [:]');
       return;
@@ -194,8 +209,8 @@ void _writeToJson(Indent indent, List<NamedType> fields, {String? typeName}) {
   });
 }
 
-void _writeToJsonString(Indent indent) {
-  indent.writeScoped('func toJsonString() -> String? {', '}', () {
+void _writeToJsonString(Indent indent, String access) {
+  indent.writeScoped('${access}func toJsonString() -> String? {', '}', () {
     indent.writeln(
       'guard let data = try? JSONSerialization.data(withJSONObject: '
       'pigeonJsonEncode(self.toJson())) else { return nil }',
@@ -204,9 +219,9 @@ void _writeToJsonString(Indent indent) {
   });
 }
 
-void _writeFromJsonString(Indent indent, String name) {
+void _writeFromJsonString(Indent indent, String name, String access) {
   indent.writeScoped(
-    'static func fromJsonString(_ json: String) -> $name? {',
+    '${access}static func fromJsonString(_ json: String) -> $name? {',
     '}',
     () {
       _writeDecodeGuard(indent);

@@ -609,7 +609,7 @@ if (wrapped == nil) {
       dartPackageName: dartPackageName,
     );
     if (generatorOptions.generateJson) {
-      writeSwiftJson(root, indent);
+      writeSwiftJson(root, indent, accessLevel: generatorOptions.accessLevel);
     }
   }
 

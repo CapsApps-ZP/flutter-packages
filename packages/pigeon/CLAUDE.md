@@ -50,18 +50,18 @@ superstruct TS models on a backend, so the emitted JSON must match that shape.
 
 ### JSON contract (identical across Kotlin/Swift/Dart)
 
-| Element | Representation |
-|---|---|
-| Map keys | Dart field name, verbatim |
-| `int`/`double` | JSON number |
-| enum | the **Dart constant name** string (Kotlin uppercases its enum consts, so its emitter maps explicitly; Dart `.name`, Swift `case` name) |
-| `List<T>` | array (elements recursed) |
-| `Map<K,V>` | object; **keys always stringified**; values recursed |
-| `T?` nullable | key **always present**, `null` when absent |
-| `Uint8List` | base64 string |
-| `Int32List`/`Int64List`/`Float64List` | JSON array of numbers |
-| nested class | nested object (its `toJson`) |
-| sealed hierarchy | `"type"` discriminator = the Pigeon class name; base dispatches on it |
+| Element                               | Representation                                                                                                                         |
+|---------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| Map keys                              | Dart field name, verbatim                                                                                                              |
+| `int`/`double`                        | JSON number                                                                                                                            |
+| enum                                  | the **Dart constant name** string (Kotlin uppercases its enum consts, so its emitter maps explicitly; Dart `.name`, Swift `case` name) |
+| `List<T>`                             | array (elements recursed)                                                                                                              |
+| `Map<K,V>`                            | object; **keys always stringified**; values recursed                                                                                   |
+| `T?` nullable                         | key **always present**, `null` when absent                                                                                             |
+| `Uint8List`                           | base64 string                                                                                                                          |
+| `Int32List`/`Int64List`/`Float64List` | JSON array of numbers                                                                                                                  |
+| nested class                          | nested object (its `toJson`)                                                                                                           |
+| sealed hierarchy                      | `"type"` discriminator = the Pigeon class name; base dispatches on it                                                                  |
 
 ### New files — replay as-is on rebase, never conflict
 - `lib/src/kotlin/kotlin_json.dart`, `lib/src/swift/swift_json.dart`,

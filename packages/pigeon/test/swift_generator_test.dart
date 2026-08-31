@@ -2427,4 +2427,90 @@ void main() {
       expect(code, isNot(contains('.map { p0 in (p0 as! [Any?]).map { p0 ')));
     });
   });
+
+  group('generateJson accessLevel', () {
+    TypeDeclaration td(String name) =>
+        TypeDeclaration(baseName: name, isNullable: false);
+
+    final Enum season = Enum(
+      name: 'Season',
+      members: <EnumMember>[EnumMember(name: 'spring')],
+    );
+    final Class person = Class(
+      name: 'Person',
+      fields: <NamedType>[NamedType(name: 'name', type: td('String'))],
+    );
+    final Class gameScore = Class(
+      name: 'GameScore',
+      fields: <NamedType>[],
+      isSealed: true,
+    );
+    final Class shakeGameScore = Class(
+      name: 'ShakeGameScore',
+      superClassName: 'GameScore',
+      superClass: gameScore,
+      fields: <NamedType>[NamedType(name: 'shakes', type: td('int'))],
+    );
+    final Root root = Root(
+      apis: <Api>[],
+      classes: <Class>[person, gameScore, shakeGameScore],
+      enums: <Enum>[season],
+    );
+
+    String generate(String? accessLevel) {
+      final StringBuffer sink = StringBuffer();
+      const SwiftGenerator().generate(
+        InternalSwiftOptions(
+          swiftOut: 'Api.swift',
+          generateJson: true,
+          accessLevel: accessLevel,
+        ),
+        root,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      return sink.toString();
+    }
+
+    test('public accessLevel makes JSON members reachable across modules', () {
+      final String code = generate('public');
+      // Extension members are internal by default; must be explicitly public.
+      expect(code, contains('public func toJson() -> [String: Any?]'));
+      expect(code, contains('public func toJsonString() -> String?'));
+      expect(
+        code,
+        contains(
+          'public static func fromJson(_ pigeonMap: [String: Any?]) -> Person',
+        ),
+      );
+      expect(
+        code,
+        contains('public static func fromJsonString(_ json: String) -> Person?'),
+      );
+      expect(code, contains('public func toJsonValue() -> String'));
+      expect(
+        code,
+        contains('public static func fromJsonValue(_ value: String) -> Season'),
+      );
+      // The sealed namespace enum AND its statics must both be public.
+      expect(code, contains('public enum GameScoreJson {'));
+      expect(
+        code,
+        contains(
+          'public static func fromJson(_ pigeonMap: [String: Any?]) -> GameScore?',
+        ),
+      );
+      // Encode/decode helpers stay private — only called within the module.
+      expect(code, contains('private func pigeonJsonEncode'));
+      expect(code, isNot(contains('public func pigeonJsonEncode')));
+    });
+
+    test('no accessLevel leaves JSON members without a modifier', () {
+      final String code = generate(null);
+      expect(code, isNot(contains('public func toJson')));
+      expect(code, contains('func toJson() -> [String: Any?]'));
+      expect(code, isNot(contains('public enum GameScoreJson')));
+      expect(code, contains('enum GameScoreJson {'));
+    });
+  });
 }
