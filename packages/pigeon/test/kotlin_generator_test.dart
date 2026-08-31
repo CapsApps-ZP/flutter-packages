@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// Long expected-code strings in the generateJson groups are intentionally split
+// across source lines for readability; the join points are exact and verified by
+// the assertions themselves.
+// ignore_for_file: missing_whitespace_between_adjacent_strings
+
 import 'package:pigeon/src/ast.dart';
 import 'package:pigeon/src/kotlin/kotlin_generator.dart';
 import 'package:test/test.dart';
@@ -2168,7 +2173,7 @@ void main() {
 
     String generate({bool generateJson = true}) {
       final StringBuffer sink = StringBuffer();
-      KotlinGenerator().generate(
+      const KotlinGenerator().generate(
         InternalKotlinOptions(
           kotlinOut: 'NativeApi.kt',
           generateJson: generateJson,
@@ -2410,6 +2415,10 @@ void main() {
           name: 'polyList',
           type: listOf(td('Base', nullable: true, associatedClass: base)),
         ),
+        NamedType(name: 'i32', type: td('Int32List')),
+        NamedType(name: 'i64', type: td('Int64List')),
+        NamedType(name: 'f64', type: td('Float64List')),
+        NamedType(name: 'nI32', type: td('Int32List', nullable: true)),
       ],
     );
     final Root root = Root(
@@ -2421,7 +2430,7 @@ void main() {
     late final String code;
     setUpAll(() {
       final StringBuffer sink = StringBuffer();
-      KotlinGenerator().generate(
+      const KotlinGenerator().generate(
         const InternalKotlinOptions(kotlinOut: 'NativeApi.kt', generateJson: true),
         root,
         sink,
@@ -2553,6 +2562,39 @@ void main() {
         contains(
           'polyList = (pigeonMap["polyList"] as List<*>).map '
           '{ (it)?.let { p1 -> BaseJson.fromJson(p1 as Map<String, Any?>) } },',
+        ),
+      );
+    });
+
+    test('numeric typed-data lists serialize as JSON number arrays', () {
+      expect(code, contains('"i32" to i32.toList(),'));
+      expect(code, contains('"i64" to i64.toList(),'));
+      expect(code, contains('"f64" to f64.toList(),'));
+      expect(code, contains('"nI32" to nI32?.toList(),'));
+      expect(
+        code,
+        contains(
+          'i32 = (pigeonMap["i32"] as List<*>).map { (it as Number).toInt() }.toIntArray(),',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'i64 = (pigeonMap["i64"] as List<*>).map { (it as Number).toLong() }.toLongArray(),',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'f64 = (pigeonMap["f64"] as List<*>).map { (it as Number).toDouble() }.toDoubleArray(),',
+        ),
+      );
+      // Nullable typed-data: null-guarded, inner map non-shadowing.
+      expect(
+        code,
+        contains(
+          'nI32 = (pigeonMap["nI32"])?.let '
+          '{ (it as List<*>).map { p1 -> (p1 as Number).toInt() }.toIntArray() },',
         ),
       );
     });

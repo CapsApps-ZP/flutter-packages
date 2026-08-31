@@ -201,27 +201,28 @@ String _toJson(String expr, TypeDeclaration type, int depth) {
   if (type.isClass) {
     return type.isNullable ? '$expr?.toJson()' : '$expr.toJson()';
   }
+  final String p = _param(depth);
+  final String arrow = depth == 0 ? '' : '$p -> ';
+  final String q = type.isNullable ? '?' : '';
   switch (type.baseName) {
     case 'Uint8List':
-      if (!type.isNullable) {
-        return '$_base64.encodeToString($expr, $_base64.NO_WRAP)';
-      }
-      final String p = _param(depth);
-      final String arrow = depth == 0 ? '' : '$p -> ';
-      return '$expr?.let { $arrow$_base64.encodeToString($p, $_base64.NO_WRAP) }';
+      return type.isNullable
+          ? '$expr?.let { $arrow$_base64.encodeToString($p, $_base64.NO_WRAP) }'
+          : '$_base64.encodeToString($expr, $_base64.NO_WRAP)';
+    case 'Int32List':
+    case 'Int64List':
+    case 'Float64List':
+      // Numeric typed arrays serialize as a plain JSON array of numbers.
+      return '$expr$q.toList()';
     case 'List':
       final TypeDeclaration element = type.typeArguments.first;
       if (_isPassthrough(element)) {
         return expr;
       }
-      final String q = type.isNullable ? '?' : '';
-      final String p = _param(depth);
-      final String arrow = depth == 0 ? '' : '$p -> ';
       return '$expr$q.map { $arrow${_toJson(p, element, depth + 1)} }';
     case 'Map':
       final TypeDeclaration key = type.typeArguments[0];
       final TypeDeclaration value = type.typeArguments[1];
-      final String q = type.isNullable ? '?' : '';
       final String k = _keyName(depth);
       final String v = _valName(depth);
       return '$expr$q.entries$q.associate { ($k, $v) -> '
@@ -262,6 +263,8 @@ String _fromJsonNonNull(String value, TypeDeclaration type, int depth) {
   if (type.isClass) {
     return '${type.baseName}Json.fromJson($value as Map<String, Any?>)';
   }
+  final String p = _param(depth);
+  final String arrow = depth == 0 ? '' : '$p -> ';
   switch (type.baseName) {
     case 'String':
       return '$value as String';
@@ -273,10 +276,14 @@ String _fromJsonNonNull(String value, TypeDeclaration type, int depth) {
       return '$value as Boolean';
     case 'Uint8List':
       return '$_base64.decode($value as String, $_base64.NO_WRAP)';
+    case 'Int32List':
+      return '($value as List<*>).map { $arrow($p as Number).toInt() }.toIntArray()';
+    case 'Int64List':
+      return '($value as List<*>).map { $arrow($p as Number).toLong() }.toLongArray()';
+    case 'Float64List':
+      return '($value as List<*>).map { $arrow($p as Number).toDouble() }.toDoubleArray()';
     case 'List':
       final TypeDeclaration element = type.typeArguments.first;
-      final String p = _param(depth);
-      final String arrow = depth == 0 ? '' : '$p -> ';
       return '($value as List<*>).map { $arrow${_fromJson(p, element, depth + 1)} }';
     case 'Map':
       final TypeDeclaration key = type.typeArguments[0];
