@@ -10,6 +10,7 @@ import '../functional.dart';
 import '../generator.dart';
 import '../generator_tools.dart';
 import '../types/task_queue.dart';
+import 'swift_json.dart';
 import 'templates.dart';
 
 /// Documentation comment open symbol.
@@ -592,6 +593,24 @@ if (wrapped == nil) {
         });
       });
     });
+  }
+
+  @override
+  void writeDataClasses(
+    InternalSwiftOptions generatorOptions,
+    Root root,
+    Indent indent, {
+    required String dartPackageName,
+  }) {
+    super.writeDataClasses(
+      generatorOptions,
+      root,
+      indent,
+      dartPackageName: dartPackageName,
+    );
+    if (generatorOptions.generateJson) {
+      writeSwiftJson(root, indent);
+    }
   }
 
   @override
