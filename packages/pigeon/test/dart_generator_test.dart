@@ -2233,4 +2233,124 @@ name: foobar
       expect(code, contains("'type': 'ShakeGameScore'"));
     });
   });
+
+  group('copyWith', () {
+    TypeDeclaration td(
+      String name, {
+      bool nullable = false,
+      List<TypeDeclaration> args = const <TypeDeclaration>[],
+    }) => TypeDeclaration(
+      baseName: name,
+      isNullable: nullable,
+      typeArguments: args,
+    );
+
+    final Class person = Class(
+      name: 'Person',
+      fields: <NamedType>[
+        NamedType(name: 'name', type: td('String')),
+        NamedType(name: 'age', type: td('int')),
+        NamedType(name: 'nickname', type: td('String', nullable: true)),
+        NamedType(
+          name: 'tags',
+          type: td('List', args: <TypeDeclaration>[td('String')]),
+        ),
+      ],
+    );
+    final Class gameScore = Class(
+      name: 'GameScore',
+      fields: <NamedType>[],
+      isSealed: true,
+    );
+    final Class shakeGameScore = Class(
+      name: 'ShakeGameScore',
+      superClassName: 'GameScore',
+      superClass: gameScore,
+      fields: <NamedType>[NamedType(name: 'shakes', type: td('int'))],
+    );
+    final Root root = Root(
+      apis: <Api>[],
+      classes: <Class>[person, gameScore, shakeGameScore],
+      enums: <Enum>[],
+    );
+
+    String generate({bool copyWith = true}) {
+      final StringBuffer sink = StringBuffer();
+      const DartGenerator().generate(
+        InternalDartOptions(dartOut: '', copyWith: copyWith),
+        root,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      return sink.toString();
+    }
+
+    test('emits nothing copyWith-related when disabled', () {
+      final String code = generate(copyWith: false);
+      expect(code, isNot(contains('copyWith')));
+      expect(code, isNot(contains('_pigeonCopyWithSentinel')));
+    });
+
+    test('concrete class gets a copyWith returning its own type', () {
+      final String code = generate();
+      expect(code, contains('Person copyWith('));
+    });
+
+    test('non-nullable field takes a nullable param and falls back with ??', () {
+      final String code = generate();
+      expect(code, contains('String? name,'));
+      expect(code, contains('name: name ?? this.name'));
+      expect(code, contains('List<String>? tags,'));
+      expect(code, contains('tags: tags ?? this.tags'));
+    });
+
+    test('nullable field uses the sentinel to keep vs set-null', () {
+      final String code = generate();
+      expect(code, contains('Object? nickname = _pigeonCopyWithSentinel,'));
+      expect(
+        code,
+        contains(
+          'nickname: identical(nickname, _pigeonCopyWithSentinel) '
+          '? this.nickname : nickname as String?',
+        ),
+      );
+    });
+
+    test('declares a file-level sentinel when a nullable field exists', () {
+      final String code = generate();
+      expect(code, contains('const Object _pigeonCopyWithSentinel = Object();'));
+    });
+
+    test('sealed base gets no copyWith; each concrete class with fields gets '
+        'one', () {
+      final String code = generate();
+      expect(code, contains('ShakeGameScore copyWith('));
+      // Person + ShakeGameScore each get one; the empty sealed base GameScore
+      // gets none, so exactly two `copyWith` methods are emitted.
+      expect('copyWith('.allMatches(code).length, 2);
+    });
+
+    test('no sentinel when no class has a nullable field', () {
+      final Root nonNullRoot = Root(
+        apis: <Api>[],
+        classes: <Class>[
+          Class(
+            name: 'Plain',
+            fields: <NamedType>[NamedType(name: 'id', type: td('int'))],
+          ),
+        ],
+        enums: <Enum>[],
+      );
+      final StringBuffer sink = StringBuffer();
+      const DartGenerator().generate(
+        InternalDartOptions(dartOut: '', copyWith: true),
+        nonNullRoot,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      final String code = sink.toString();
+      expect(code, contains('Plain copyWith('));
+      expect(code, isNot(contains('_pigeonCopyWithSentinel')));
+    });
+  });
 }

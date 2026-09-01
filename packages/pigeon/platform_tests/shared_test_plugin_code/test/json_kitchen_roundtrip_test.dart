@@ -11,6 +11,10 @@
 // generated value-based `==` (deep comparison of the encoded lists), so a
 // swapped/dropped/mis-typed field fails the round-trip.
 //
+// The same kitchen also exercises the fork-specific `copyWith` emitter (the
+// `copyWith` group below), since its `Ks*` types cover non-nullable, nullable,
+// sealed, and nested-class fields.
+//
 // This runs as a plain `flutter test` — no gradle/Xcode toolchain needed.
 
 import 'dart:typed_data';
@@ -39,6 +43,43 @@ void main() {
     final KsShape square = KsSquare(side: 8);
     expect(KsShape.fromJsonString(circle.toJsonString()), circle);
     expect(KsShape.fromJsonString(square.toJsonString()), square);
+  });
+
+  group('copyWith', () {
+    test('non-nullable field is replaced by a value, kept when omitted', () {
+      final KsAll base = _makeKsAll();
+      expect(base.copyWith(s: 'changed').s, 'changed');
+      expect(base.copyWith(i: 999).i, 999);
+      // Fields not passed keep their current value.
+      expect(base.copyWith(s: 'changed').i, base.i);
+      expect(base.copyWith().s, base.s);
+    });
+
+    test('nullable field: omit keeps, null clears, value sets', () {
+      final KsAll base = _makeKsAll();
+      expect(base.nStr, 'notnull');
+      expect(base.copyWith().nStr, 'notnull'); // omit -> keep
+      expect(base.copyWith(nStr: null).nStr, isNull); // null -> clear
+      expect(base.copyWith(nStr: 'other').nStr, 'other'); // value -> set
+    });
+
+    test('clearing one nullable leaves the other fields untouched', () {
+      final KsAll base = _makeKsAll();
+      final KsAll copy = base.copyWith(nStr: null);
+      expect(copy.nStr, isNull);
+      expect(copy.nInt, base.nInt); // other nullable kept
+      expect(copy.s, base.s); // non-nullable kept
+    });
+
+    test('sealed subclasses each get their own copyWith', () {
+      expect(KsCircle(radius: 3.25).copyWith(radius: 9.5).radius, 9.5);
+      expect(KsSquare(side: 8).copyWith().side, 8);
+    });
+
+    test('nested data class copyWith', () {
+      expect(KsInner(value: 1).copyWith(value: 2).value, 2);
+      expect(KsInner(value: 1).copyWith().value, 1);
+    });
   });
 }
 

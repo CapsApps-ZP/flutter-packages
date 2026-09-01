@@ -11,6 +11,7 @@ import '../ast.dart';
 import '../functional.dart';
 import '../generator.dart';
 import '../generator_tools.dart';
+import 'dart_copywith.dart';
 import 'dart_json.dart';
 import 'proxy_api_generator_helper.dart' as proxy_api_helper;
 import 'templates.dart';
@@ -51,6 +52,7 @@ class DartOptions {
     this.sourceOutPath,
     this.testOutPath,
     this.generateJson = false,
+    this.copyWith = false,
   });
 
   /// A copyright header that will get prepended to generated code.
@@ -70,6 +72,14 @@ class DartOptions {
   /// contract; sealed hierarchies use a `"type"` discriminator.
   final bool generateJson;
 
+  /// Whether to generate a `copyWith` method on generated data classes.
+  ///
+  /// This is a fork-specific extension (not part of upstream Pigeon). When
+  /// enabled, each concrete data class with fields gets a `copyWith` returning
+  /// a new instance. Nullable fields use a sentinel default so that omitting an
+  /// argument keeps the current value while passing `null` clears it.
+  final bool copyWith;
+
   /// Creates a [DartOptions] from a Map representation where:
   /// `x = DartOptions.fromMap(x.toMap())`.
   static DartOptions fromMap(Map<String, Object> map) {
@@ -80,6 +90,7 @@ class DartOptions {
       sourceOutPath: map['sourceOutPath'] as String?,
       testOutPath: map['testOutPath'] as String?,
       generateJson: map['generateJson'] as bool? ?? false,
+      copyWith: map['copyWith'] as bool? ?? false,
     );
   }
 
@@ -91,6 +102,7 @@ class DartOptions {
       if (sourceOutPath != null) 'sourceOutPath': sourceOutPath!,
       if (testOutPath != null) 'testOutPath': testOutPath!,
       'generateJson': generateJson,
+      'copyWith': copyWith,
     };
     return result;
   }
@@ -110,6 +122,7 @@ class InternalDartOptions extends InternalOptions {
     this.dartOut,
     this.testOut,
     this.generateJson = false,
+    this.copyWith = false,
   });
 
   /// Creates InternalDartOptions from DartOptions.
@@ -121,7 +134,8 @@ class InternalDartOptions extends InternalOptions {
   }) : copyrightHeader = copyrightHeader ?? options.copyrightHeader,
        dartOut = (dartOut ?? options.sourceOutPath)!,
        testOut = testOut ?? options.testOutPath,
-       generateJson = options.generateJson;
+       generateJson = options.generateJson,
+       copyWith = options.copyWith;
 
   /// A copyright header that will get prepended to generated code.
   final Iterable<String>? copyrightHeader;
@@ -135,6 +149,10 @@ class InternalDartOptions extends InternalOptions {
   /// Whether to generate `toJson`/`fromJson` (and their string variants) on
   /// generated data classes. Fork-specific extension; defaults to off.
   final bool generateJson;
+
+  /// Whether to generate a `copyWith` method on generated data classes.
+  /// Fork-specific extension; defaults to off.
+  final bool copyWith;
 }
 
 /// Class that manages all Dart code generation.
@@ -303,6 +321,9 @@ class DartGenerator extends StructuredGenerator<InternalDartOptions> {
       if (generatorOptions.generateJson && !classDefinition.isSealed) {
         indent.newln();
         writeDartClassJson(root, indent, classDefinition);
+      }
+      if (generatorOptions.copyWith && !classDefinition.isSealed) {
+        writeDartClassCopyWith(indent, classDefinition);
       }
     });
   }
@@ -1176,6 +1197,10 @@ final BinaryMessenger? ${varNamePrefix}binaryMessenger;
     Indent indent, {
     required String dartPackageName,
   }) {
+    if (generatorOptions.copyWith && rootNeedsCopyWithSentinel(root)) {
+      indent.newln();
+      writeCopyWithSentinel(indent);
+    }
     if (root.containsHostApi || root.containsProxyApi) {
       _writeCreateConnectionError(indent);
     }

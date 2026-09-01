@@ -95,6 +95,41 @@ superstruct TS models on a backend, so the emitted JSON must match that shape.
 - Unit tests: a `generateJson` group (plus a type-matrix group for Kotlin) in
   `test/{kotlin,swift,dart}_generator_test.dart`.
 
+## 4. `copyWith` — ergonomic copies on data classes
+
+Opt-in `copyWith` on generated **Dart** data classes, gated by a `copyWith`
+option (default `false`, so with it off the output is byte-identical to
+upstream). Dart-only: Kotlin data classes already have a native `copy()`, and
+Swift is handled separately. Pigeon's Dart fields are mutable, so this is
+ergonomic sugar, not a necessity.
+
+Each concrete class with fields gets `ClassName copyWith({...})` returning a new
+instance. A **non-nullable** field takes a nullable parameter and falls back to
+the current value (`field ?? this.field`). A **nullable** field uses a
+file-level sentinel default so all three cases are expressible: omit the
+argument to keep the current value, pass `null` to clear it, pass a value to set
+it. Sealed bases and empty classes are skipped (concrete subclasses get their
+own `copyWith`).
+
+### New file — replay as-is on rebase, never conflict
+- `lib/src/dart/dart_copywith.dart` — the emitter (self-contained). Emits the
+  per-class `copyWith`, plus `rootNeedsCopyWithSentinel`/`writeCopyWithSentinel`
+  for the single file-level `const Object _pigeonCopyWithSentinel = Object();`
+  (emitted only when some class has a nullable field, so no unused element). No
+  extra `ignore_for_file` line needed — `avoid_as` is already covered.
+
+### Additive edits to existing files — the ONLY conflict-prone spots (all small)
+- **`copyWith` option** on `DartOptions`/`InternalDartOptions` (constructor
+  param, field, `fromMap`/`toMap`, `fromDartOptions`), default `false`.
+- **`dart_generator.dart`**: `import 'dart_copywith.dart';`, a gated sentinel
+  emit in `writeGeneralUtilities`, and a gated `writeDartClassCopyWith` call in
+  `writeDataClass` (after equality, `copyWith && !classDefinition.isSealed`).
+- `tool/shared/generation.dart`: a `dartCopyWith` param on `runPigeon` (→
+  `DartOptions.copyWith`), and `dartCopyWith: true` on the Dart `json_kitchen`
+  arm (so the committed Dart golden also exercises `copyWith`).
+- Unit tests: a `copyWith` group in `test/dart_generator_test.dart`; a
+  `copyWith` group in the Dart kitchen round-trip test.
+
 ## Deliberately NOT changed (avoids guaranteed recurring rebase conflicts)
 `pubspec.yaml` `version`, `lib/src/generator_tools.dart` `pigeonVersion`, and
 `CHANGELOG.md` are left at upstream values. The fork is consumed by git ref, so

@@ -265,6 +265,7 @@ Future<int> generateTestPigeons({
     dartPackageName: 'pigeon_integration_tests',
     suppressVersion: true,
     dartGenerateJson: true,
+    dartCopyWith: true,
   );
   if (jsonKitchenDartCode != 0) {
     return jsonKitchenDartCode;
@@ -289,6 +290,7 @@ Future<int> runPigeon({
   String? dartOut,
   String? dartTestOut,
   bool dartGenerateJson = false,
+  bool dartCopyWith = false,
   String? gobjectHeaderOut,
   String? gobjectSourceOut,
   String? gobjectModule,
@@ -340,7 +342,10 @@ Future<int> runPigeon({
       copyrightHeader: copyrightHeader,
       dartOut: dartOut,
       dartTestOut: dartTestOut,
-      dartOptions: DartOptions(generateJson: dartGenerateJson),
+      dartOptions: DartOptions(
+        generateJson: dartGenerateJson,
+        copyWith: dartCopyWith,
+      ),
       cppHeaderOut: cppHeaderOut,
       cppSourceOut: cppSourceOut,
       cppOptions: CppOptions(namespace: cppNamespace),
