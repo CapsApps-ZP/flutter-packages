@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// Long expected-code strings in the generateJson groups are intentionally split
+// across source lines for readability; the join points are exact and verified by
+// the assertions themselves.
+// ignore_for_file: missing_whitespace_between_adjacent_strings
+
 import 'package:pigeon/src/ast.dart';
 import 'package:pigeon/src/kotlin/kotlin_generator.dart';
 import 'package:test/test.dart';
@@ -2099,5 +2104,507 @@ void main() {
 
     // There should be only one occurrence of 'is Foo' in the block
     expect(count, 1);
+  });
+
+  group('generateJson', () {
+    TypeDeclaration td(
+      String name, {
+      bool nullable = false,
+      List<TypeDeclaration> args = const <TypeDeclaration>[],
+      Enum? associatedEnum,
+      Class? associatedClass,
+    }) => TypeDeclaration(
+      baseName: name,
+      isNullable: nullable,
+      typeArguments: args,
+      associatedEnum: associatedEnum,
+      associatedClass: associatedClass,
+    );
+
+    final Enum season = Enum(
+      name: 'Season',
+      members: <EnumMember>[
+        EnumMember(name: 'spring'),
+        EnumMember(name: 'readyToPlay'),
+      ],
+    );
+    final Class address = Class(
+      name: 'Address',
+      fields: <NamedType>[NamedType(name: 'city', type: td('String'))],
+    );
+    final Class person = Class(
+      name: 'Person',
+      fields: <NamedType>[
+        NamedType(name: 'name', type: td('String')),
+        NamedType(name: 'age', type: td('int')),
+        NamedType(name: 'height', type: td('double', nullable: true)),
+        NamedType(name: 'season', type: td('Season', associatedEnum: season)),
+        NamedType(
+          name: 'address',
+          type: td('Address', associatedClass: address),
+        ),
+        NamedType(
+          name: 'tags',
+          type: td('List', args: <TypeDeclaration>[td('String')]),
+        ),
+        NamedType(
+          name: 'scores',
+          type: td('Map', args: <TypeDeclaration>[td('int'), td('double')]),
+        ),
+        NamedType(name: 'avatar', type: td('Uint8List')),
+      ],
+    );
+    final Class gameScore = Class(
+      name: 'GameScore',
+      fields: <NamedType>[],
+      isSealed: true,
+    );
+    final Class shakeGameScore = Class(
+      name: 'ShakeGameScore',
+      superClassName: 'GameScore',
+      superClass: gameScore,
+      fields: <NamedType>[NamedType(name: 'shakes', type: td('int'))],
+    );
+    final Root root = Root(
+      apis: <Api>[],
+      classes: <Class>[person, address, gameScore, shakeGameScore],
+      enums: <Enum>[season],
+    );
+
+    String generate({bool generateJson = true}) {
+      final StringBuffer sink = StringBuffer();
+      const KotlinGenerator().generate(
+        InternalKotlinOptions(
+          kotlinOut: 'NativeApi.kt',
+          generateJson: generateJson,
+        ),
+        root,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      return sink.toString();
+    }
+
+    test('emits helpers and org.json imports when enabled', () {
+      final String code = generate();
+      expect(code, contains('import org.json.JSONArray'));
+      expect(code, contains('import org.json.JSONObject'));
+      expect(code, contains('private fun pigeonJsonEncode(value: Any?): Any'));
+      expect(code, contains('private fun pigeonJsonDecode(value: Any?): Any?'));
+    });
+
+    test('emits nothing JSON-related when disabled', () {
+      final String code = generate(generateJson: false);
+      expect(code, isNot(contains('pigeonJsonEncode')));
+      expect(code, isNot(contains('import org.json')));
+      expect(code, isNot(contains('.toJsonValue()')));
+      expect(code, isNot(contains('fun Person.toJson(')));
+    });
+
+    test('encodes enums by their Dart constant name', () {
+      final String code = generate();
+      expect(
+        code,
+        contains('fun Season.toJsonValue(): String = when (this) {'),
+      );
+      expect(code, contains('Season.READY_TO_PLAY -> "readyToPlay"'));
+      expect(code, contains('"readyToPlay" -> Season.READY_TO_PLAY'));
+      expect(code, contains('fun seasonFromJsonValue(value: String): Season'));
+    });
+
+    test('concrete class toJson maps each field', () {
+      final String code = generate();
+      expect(code, contains('fun Person.toJson(): Map<String, Any?> = mapOf('));
+      expect(code, contains('"name" to name,'));
+      expect(code, contains('"season" to season.toJsonValue(),'));
+      expect(code, contains('"address" to address.toJson(),'));
+      expect(
+        code,
+        contains(
+          'fun Person.toJsonString(): String = '
+          'pigeonJsonEncode(toJson()).toString()',
+        ),
+      );
+    });
+
+    test('fromJson coerces number types and recurses', () {
+      final String code = generate();
+      expect(code, contains('object PersonJson {'));
+      expect(code, contains('age = (pigeonMap["age"] as Number).toLong(),'));
+      expect(
+        code,
+        contains('season = seasonFromJsonValue(pigeonMap["season"] as String),'),
+      );
+      expect(
+        code,
+        contains(
+          'address = AddressJson.fromJson('
+          'pigeonMap["address"] as Map<String, Any?>),',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'fun fromJsonString(json: String): Person = '
+          'fromJson(pigeonJsonDecode(JSONObject(json)) as Map<String, Any?>)',
+        ),
+      );
+    });
+
+    test('nullable field always writes the key and null-guards decode', () {
+      final String code = generate();
+      expect(code, contains('"height" to height,'));
+      expect(
+        code,
+        contains('height = (pigeonMap["height"])?.let { (it as Number).toDouble() },'),
+      );
+    });
+
+    test('Map keys are stringified', () {
+      final String code = generate();
+      expect(
+        code,
+        contains(
+          '"scores" to scores.entries.associate { (k, v) -> k.toString() to v },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'scores = (pigeonMap["scores"] as Map<*, *>).entries'
+          '.associate { (k, v) -> (k as String).toLong() to (v as Number).toDouble() },',
+        ),
+      );
+    });
+
+    test('List of primitives passes through', () {
+      final String code = generate();
+      expect(code, contains('"tags" to tags,'));
+      expect(
+        code,
+        contains('tags = (pigeonMap["tags"] as List<*>).map { it as String },'),
+      );
+    });
+
+    test('Uint8List encoded as base64', () {
+      final String code = generate();
+      expect(
+        code,
+        contains(
+          '"avatar" to android.util.Base64.encodeToString('
+          'avatar, android.util.Base64.NO_WRAP),',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'avatar = android.util.Base64.decode('
+          'pigeonMap["avatar"] as String, android.util.Base64.NO_WRAP),',
+        ),
+      );
+    });
+
+    test('sealed hierarchy uses a type discriminator and dispatches', () {
+      final String code = generate();
+      expect(
+        code,
+        contains('fun GameScore.toJson(): Map<String, Any?> = when (this) {'),
+      );
+      expect(code, contains('is ShakeGameScore -> this.toJson()'));
+      expect(code, contains('"type" to "ShakeGameScore",'));
+      expect(
+        code,
+        contains(
+          'fun fromJson(pigeonMap: Map<String, Any?>): GameScore = '
+          'when (pigeonMap["type"]) {',
+        ),
+      );
+      expect(
+        code,
+        contains('"ShakeGameScore" -> ShakeGameScoreJson.fromJson(pigeonMap)'),
+      );
+    });
+  });
+
+  group('generateJson type matrix', () {
+    TypeDeclaration td(
+      String name, {
+      bool nullable = false,
+      List<TypeDeclaration> args = const <TypeDeclaration>[],
+      Enum? associatedEnum,
+      Class? associatedClass,
+    }) => TypeDeclaration(
+      baseName: name,
+      isNullable: nullable,
+      typeArguments: args,
+      associatedEnum: associatedEnum,
+      associatedClass: associatedClass,
+    );
+
+    final Enum e = Enum(
+      name: 'E',
+      members: <EnumMember>[EnumMember(name: 'a'), EnumMember(name: 'bTwo')],
+    );
+    final Class inner = Class(
+      name: 'Inner',
+      fields: <NamedType>[NamedType(name: 'x', type: td('int'))],
+    );
+    final Class base = Class(
+      name: 'Base',
+      fields: <NamedType>[],
+      isSealed: true,
+    );
+    final Class subA = Class(
+      name: 'SubA',
+      superClassName: 'Base',
+      superClass: base,
+      fields: <NamedType>[NamedType(name: 'a', type: td('int'))],
+    );
+    final Class subB = Class(
+      name: 'SubB',
+      superClassName: 'Base',
+      superClass: base,
+      fields: <NamedType>[NamedType(name: 'b', type: td('String'))],
+    );
+
+    TypeDeclaration listOf(TypeDeclaration x) =>
+        td('List', args: <TypeDeclaration>[x]);
+    TypeDeclaration mapOf(TypeDeclaration k, TypeDeclaration v) =>
+        td('Map', args: <TypeDeclaration>[k, v]);
+
+    final Class kitchen = Class(
+      name: 'Kitchen',
+      fields: <NamedType>[
+        NamedType(name: 'flag', type: td('bool')),
+        NamedType(name: 'anything', type: td('Object')),
+        NamedType(name: 'nEnum', type: td('E', nullable: true, associatedEnum: e)),
+        NamedType(
+          name: 'nInner',
+          type: td('Inner', nullable: true, associatedClass: inner),
+        ),
+        NamedType(name: 'nBytes', type: td('Uint8List', nullable: true)),
+        NamedType(name: 'enumList', type: listOf(td('E', associatedEnum: e))),
+        NamedType(
+          name: 'classList',
+          type: listOf(td('Inner', associatedClass: inner)),
+        ),
+        NamedType(name: 'nElemList', type: listOf(td('String', nullable: true))),
+        NamedType(
+          name: 'nClassElemList',
+          type: listOf(td('Inner', nullable: true, associatedClass: inner)),
+        ),
+        NamedType(
+          name: 'enumKeyMap',
+          type: mapOf(td('E', associatedEnum: e), td('int')),
+        ),
+        NamedType(
+          name: 'classValMap',
+          type: mapOf(td('String'), td('Inner', associatedClass: inner)),
+        ),
+        NamedType(
+          name: 'nValMap',
+          type: mapOf(td('String'), td('int', nullable: true)),
+        ),
+        NamedType(name: 'nestedList', type: listOf(listOf(td('int')))),
+        NamedType(
+          name: 'mapOfList',
+          type: mapOf(td('String'), listOf(td('int'))),
+        ),
+        NamedType(name: 'single', type: td('Base', associatedClass: base)),
+        NamedType(
+          name: 'polyList',
+          type: listOf(td('Base', nullable: true, associatedClass: base)),
+        ),
+        NamedType(name: 'i32', type: td('Int32List')),
+        NamedType(name: 'i64', type: td('Int64List')),
+        NamedType(name: 'f64', type: td('Float64List')),
+        NamedType(name: 'nI32', type: td('Int32List', nullable: true)),
+      ],
+    );
+    final Root root = Root(
+      apis: <Api>[],
+      classes: <Class>[kitchen, inner, base, subA, subB],
+      enums: <Enum>[e],
+    );
+
+    late final String code;
+    setUpAll(() {
+      final StringBuffer sink = StringBuffer();
+      const KotlinGenerator().generate(
+        const InternalKotlinOptions(kotlinOut: 'NativeApi.kt', generateJson: true),
+        root,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      code = sink.toString();
+    });
+
+    test('bool and Object pass through', () {
+      expect(code, contains('"flag" to flag,'));
+      expect(code, contains('flag = pigeonMap["flag"] as Boolean,'));
+      expect(code, contains('"anything" to anything,'));
+      expect(code, contains('anything = pigeonMap["anything"],'));
+    });
+
+    test('nullable enum/class/bytes null-guard', () {
+      expect(code, contains('"nEnum" to nEnum?.toJsonValue(),'));
+      expect(
+        code,
+        contains('nEnum = (pigeonMap["nEnum"])?.let { eFromJsonValue(it as String) },'),
+      );
+      expect(
+        code,
+        contains(
+          'nInner = (pigeonMap["nInner"])?.let '
+          '{ InnerJson.fromJson(it as Map<String, Any?>) },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          '"nBytes" to nBytes?.let '
+          '{ android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) },',
+        ),
+      );
+    });
+
+    test('List of enums and classes recurses per element', () {
+      expect(code, contains('"enumList" to enumList.map { it.toJsonValue() },'));
+      expect(
+        code,
+        contains(
+          'enumList = (pigeonMap["enumList"] as List<*>).map { eFromJsonValue(it as String) },',
+        ),
+      );
+      expect(code, contains('"classList" to classList.map { it.toJson() },'));
+      expect(
+        code,
+        contains(
+          'classList = (pigeonMap["classList"] as List<*>).map '
+          '{ InnerJson.fromJson(it as Map<String, Any?>) },',
+        ),
+      );
+    });
+
+    test('enum map key and class map value', () {
+      expect(
+        code,
+        contains(
+          '"enumKeyMap" to enumKeyMap.entries.associate { (k, v) -> k.toJsonValue() to v },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'enumKeyMap = (pigeonMap["enumKeyMap"] as Map<*, *>).entries'
+          '.associate { (k, v) -> eFromJsonValue(k as String) to (v as Number).toLong() },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'classValMap = (pigeonMap["classValMap"] as Map<*, *>).entries'
+          '.associate { (k, v) -> k as String to InnerJson.fromJson(v as Map<String, Any?>) },',
+        ),
+      );
+    });
+
+    test('polymorphic single field dispatches through the sealed base', () {
+      expect(code, contains('"single" to single.toJson(),'));
+      expect(
+        code,
+        contains('single = BaseJson.fromJson(pigeonMap["single"] as Map<String, Any?>),'),
+      );
+    });
+
+    test('sealed base with multiple subclasses is exhaustive', () {
+      expect(code, contains('is SubA -> this.toJson()'));
+      expect(code, contains('is SubB -> this.toJson()'));
+      expect(code, contains('"SubA" -> SubAJson.fromJson(pigeonMap)'));
+      expect(code, contains('"SubB" -> SubBJson.fromJson(pigeonMap)'));
+    });
+
+    test('nested lambdas use non-shadowing parameter names', () {
+      // Nullable element in a list.
+      expect(
+        code,
+        contains(
+          'nElemList = (pigeonMap["nElemList"] as List<*>).map '
+          '{ (it)?.let { p1 -> p1 as String } },',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'nClassElemList = (pigeonMap["nClassElemList"] as List<*>).map '
+          '{ (it)?.let { p1 -> InnerJson.fromJson(p1 as Map<String, Any?>) } },',
+        ),
+      );
+      // Nullable map value.
+      expect(
+        code,
+        contains(
+          'nValMap = (pigeonMap["nValMap"] as Map<*, *>).entries'
+          '.associate { (k, v) -> k as String to (v)?.let { p1 -> (p1 as Number).toLong() } },',
+        ),
+      );
+      // Nested list.
+      expect(
+        code,
+        contains(
+          'nestedList = (pigeonMap["nestedList"] as List<*>).map '
+          '{ (it as List<*>).map { p1 -> (p1 as Number).toLong() } },',
+        ),
+      );
+      // List of nullable polymorphic base.
+      expect(
+        code,
+        contains(
+          'polyList = (pigeonMap["polyList"] as List<*>).map '
+          '{ (it)?.let { p1 -> BaseJson.fromJson(p1 as Map<String, Any?>) } },',
+        ),
+      );
+    });
+
+    test('numeric typed-data lists serialize as JSON number arrays', () {
+      expect(code, contains('"i32" to i32.toList(),'));
+      expect(code, contains('"i64" to i64.toList(),'));
+      expect(code, contains('"f64" to f64.toList(),'));
+      expect(code, contains('"nI32" to nI32?.toList(),'));
+      expect(
+        code,
+        contains(
+          'i32 = (pigeonMap["i32"] as List<*>).map { (it as Number).toInt() }.toIntArray(),',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'i64 = (pigeonMap["i64"] as List<*>).map { (it as Number).toLong() }.toLongArray(),',
+        ),
+      );
+      expect(
+        code,
+        contains(
+          'f64 = (pigeonMap["f64"] as List<*>).map { (it as Number).toDouble() }.toDoubleArray(),',
+        ),
+      );
+      // Nullable typed-data: null-guarded, inner map non-shadowing.
+      expect(
+        code,
+        contains(
+          'nI32 = (pigeonMap["nI32"])?.let '
+          '{ (it as List<*>).map { p1 -> (p1 as Number).toInt() }.toIntArray() },',
+        ),
+      );
+    });
+
+    test('no `it` is shadowed by an inner lambda', () {
+      // The two shadow shapes that would trigger Kotlin's "name shadowed: it".
+      expect(code, isNot(contains('?.let { it as List')));
+      expect(code, isNot(contains('.map { (it)?.let { it ')));
+      expect(code, isNot(contains('.map { (it as List<*>).map { (it')));
+      expect(code, isNot(contains('associate { (k, v) -> k to (v as List<*>).map { (it')));
+    });
   });
 }

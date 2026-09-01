@@ -2090,4 +2090,267 @@ name: foobar
     expect(code, contains('buffer.putUint8(4);'));
     expect(code, contains('buffer.putInt64(value);'));
   });
+
+  group('generateJson', () {
+    TypeDeclaration td(
+      String name, {
+      bool nullable = false,
+      List<TypeDeclaration> args = const <TypeDeclaration>[],
+      Enum? associatedEnum,
+      Class? associatedClass,
+    }) => TypeDeclaration(
+      baseName: name,
+      isNullable: nullable,
+      typeArguments: args,
+      associatedEnum: associatedEnum,
+      associatedClass: associatedClass,
+    );
+
+    final Enum season = Enum(
+      name: 'Season',
+      members: <EnumMember>[
+        EnumMember(name: 'spring'),
+        EnumMember(name: 'readyToPlay'),
+      ],
+    );
+    final Class address = Class(
+      name: 'Address',
+      fields: <NamedType>[NamedType(name: 'city', type: td('String'))],
+    );
+    final Class person = Class(
+      name: 'Person',
+      fields: <NamedType>[
+        NamedType(name: 'name', type: td('String')),
+        NamedType(name: 'age', type: td('int')),
+        NamedType(name: 'height', type: td('double', nullable: true)),
+        NamedType(name: 'season', type: td('Season', associatedEnum: season)),
+        NamedType(
+          name: 'address',
+          type: td('Address', associatedClass: address),
+        ),
+        NamedType(
+          name: 'tags',
+          type: td('List', args: <TypeDeclaration>[td('String')]),
+        ),
+        NamedType(
+          name: 'scores',
+          type: td('Map', args: <TypeDeclaration>[td('int'), td('double')]),
+        ),
+        NamedType(name: 'avatar', type: td('Uint8List')),
+        NamedType(name: 'i32', type: td('Int32List')),
+      ],
+    );
+    final Class gameScore = Class(
+      name: 'GameScore',
+      fields: <NamedType>[],
+      isSealed: true,
+    );
+    final Class shakeGameScore = Class(
+      name: 'ShakeGameScore',
+      superClassName: 'GameScore',
+      superClass: gameScore,
+      fields: <NamedType>[NamedType(name: 'shakes', type: td('int'))],
+    );
+    final Root root = Root(
+      apis: <Api>[],
+      classes: <Class>[person, address, gameScore, shakeGameScore],
+      enums: <Enum>[season],
+    );
+
+    String generate({bool generateJson = true}) {
+      final StringBuffer sink = StringBuffer();
+      const DartGenerator().generate(
+        InternalDartOptions(dartOut: '', generateJson: generateJson),
+        root,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      return sink.toString();
+    }
+
+    test('emits nothing JSON-related when disabled', () {
+      final String code = generate(generateJson: false);
+      expect(code, isNot(contains('toJson')));
+      expect(code, isNot(contains("import 'dart:convert'")));
+      expect(code, isNot(contains('.fromJson(')));
+    });
+
+    test('imports dart:convert and adds string helpers when enabled', () {
+      final String code = generate();
+      expect(code, contains("import 'dart:convert'"));
+      expect(code, contains('jsonEncode(toJson())'));
+      expect(code, contains('jsonDecode(json) as Map<String, Object?>'));
+    });
+
+    test('concrete class gets toJson map and factory fromJson', () {
+      final String code = generate();
+      expect(code, contains('Map<String, Object?> toJson()'));
+      expect(code, contains('factory Person.fromJson('));
+      expect(code, contains('factory Person.fromJsonString('));
+      expect(code, contains('name: json[\'name\'] as String'));
+    });
+
+    test('encodes enums by their Dart constant name', () {
+      final String code = generate();
+      expect(code, contains('season.name'));
+      expect(code, contains("Season.values.byName(json['season'] as String)"));
+    });
+
+    test('nested class recurses and nullable is passed through', () {
+      final String code = generate();
+      expect(code, contains('address.toJson()'));
+      expect(code, contains("Address.fromJson(json['address'] as Map<String, Object?>)"));
+      expect(code, contains("height: json['height'] as double?"));
+    });
+
+    test('Uint8List is base64 and numeric typed lists are number arrays', () {
+      final String code = generate();
+      expect(code, contains('base64Encode(avatar)'));
+      expect(code, contains("base64Decode(json['avatar'] as String)"));
+      expect(
+        code,
+        contains("Int32List.fromList((json['i32'] as List<Object?>).cast<int>())"),
+      );
+    });
+
+    test('Map keys are stringified', () {
+      final String code = generate();
+      expect(code, contains('MapEntry(k0.toString(), v0)'));
+      expect(code, contains('MapEntry(int.parse(k0 as String), v0 as double)'));
+    });
+
+    test('sealed base dispatches on a type discriminator', () {
+      final String code = generate();
+      // Abstract toJson so `base.toJson()` dispatches dynamically.
+      expect(code, contains('Map<String, Object?> toJson();'));
+      expect(code, contains('static GameScore fromJson('));
+      expect(code, contains("switch (json['type'])"));
+      expect(
+        code,
+        contains("'ShakeGameScore' => ShakeGameScore.fromJson(json)"),
+      );
+      // Subtype carries the discriminator and overrides toJson.
+      expect(code, contains("'type': 'ShakeGameScore'"));
+    });
+  });
+
+  group('copyWith', () {
+    TypeDeclaration td(
+      String name, {
+      bool nullable = false,
+      List<TypeDeclaration> args = const <TypeDeclaration>[],
+    }) => TypeDeclaration(
+      baseName: name,
+      isNullable: nullable,
+      typeArguments: args,
+    );
+
+    final Class person = Class(
+      name: 'Person',
+      fields: <NamedType>[
+        NamedType(name: 'name', type: td('String')),
+        NamedType(name: 'age', type: td('int')),
+        NamedType(name: 'nickname', type: td('String', nullable: true)),
+        NamedType(
+          name: 'tags',
+          type: td('List', args: <TypeDeclaration>[td('String')]),
+        ),
+      ],
+    );
+    final Class gameScore = Class(
+      name: 'GameScore',
+      fields: <NamedType>[],
+      isSealed: true,
+    );
+    final Class shakeGameScore = Class(
+      name: 'ShakeGameScore',
+      superClassName: 'GameScore',
+      superClass: gameScore,
+      fields: <NamedType>[NamedType(name: 'shakes', type: td('int'))],
+    );
+    final Root root = Root(
+      apis: <Api>[],
+      classes: <Class>[person, gameScore, shakeGameScore],
+      enums: <Enum>[],
+    );
+
+    String generate({bool copyWith = true}) {
+      final StringBuffer sink = StringBuffer();
+      const DartGenerator().generate(
+        InternalDartOptions(dartOut: '', copyWith: copyWith),
+        root,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      return sink.toString();
+    }
+
+    test('emits nothing copyWith-related when disabled', () {
+      final String code = generate(copyWith: false);
+      expect(code, isNot(contains('copyWith')));
+      expect(code, isNot(contains('_pigeonCopyWithSentinel')));
+    });
+
+    test('concrete class gets a copyWith returning its own type', () {
+      final String code = generate();
+      expect(code, contains('Person copyWith('));
+    });
+
+    test('non-nullable field takes a nullable param and falls back with ??', () {
+      final String code = generate();
+      expect(code, contains('String? name,'));
+      expect(code, contains('name: name ?? this.name'));
+      expect(code, contains('List<String>? tags,'));
+      expect(code, contains('tags: tags ?? this.tags'));
+    });
+
+    test('nullable field uses the sentinel to keep vs set-null', () {
+      final String code = generate();
+      expect(code, contains('Object? nickname = _pigeonCopyWithSentinel,'));
+      expect(
+        code,
+        contains(
+          'nickname: identical(nickname, _pigeonCopyWithSentinel) '
+          '? this.nickname : nickname as String?',
+        ),
+      );
+    });
+
+    test('declares a file-level sentinel when a nullable field exists', () {
+      final String code = generate();
+      expect(code, contains('const Object _pigeonCopyWithSentinel = Object();'));
+    });
+
+    test('sealed base gets no copyWith; each concrete class with fields gets '
+        'one', () {
+      final String code = generate();
+      expect(code, contains('ShakeGameScore copyWith('));
+      // Person + ShakeGameScore each get one; the empty sealed base GameScore
+      // gets none, so exactly two `copyWith` methods are emitted.
+      expect('copyWith('.allMatches(code).length, 2);
+    });
+
+    test('no sentinel when no class has a nullable field', () {
+      final Root nonNullRoot = Root(
+        apis: <Api>[],
+        classes: <Class>[
+          Class(
+            name: 'Plain',
+            fields: <NamedType>[NamedType(name: 'id', type: td('int'))],
+          ),
+        ],
+        enums: <Enum>[],
+      );
+      final StringBuffer sink = StringBuffer();
+      const DartGenerator().generate(
+        InternalDartOptions(dartOut: '', copyWith: true),
+        nonNullRoot,
+        sink,
+        dartPackageName: DEFAULT_PACKAGE_NAME,
+      );
+      final String code = sink.toString();
+      expect(code, contains('Plain copyWith('));
+      expect(code, isNot(contains('_pigeonCopyWithSentinel')));
+    });
+  });
 }
