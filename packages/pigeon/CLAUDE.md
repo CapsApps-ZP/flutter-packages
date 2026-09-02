@@ -130,6 +130,80 @@ own `copyWith`).
 - Unit tests: a `copyWith` group in `test/dart_generator_test.dart`; a
   `copyWith` group in the Dart kitchen round-trip test.
 
+## 5. TypeScript generator — models-only, zero-dependency
+
+A **new first-class language** for this fork (upstream Pigeon has no TypeScript
+generator). Unlike §1–§4, which patch existing generators, this adds a whole
+generator — but still additive and models-only. It emits **plain-TS interfaces
+plus hand-written, validating `toJson`/`fromJson`** (and `*String` variants)
+from the same contract as the other languages, with **no third-party runtime
+dependency** in the output. It generates the TS side of the shared JSON contract
+that §3's `generateJson` targets (previously hand-maintained as superstruct
+models on the backend).
+
+Configured like any other language:
+`PigeonOptions(typescriptOut: 'gen/foo.ts', typescriptOptions: TypeScriptOptions())`.
+The generator extends `Generator<InternalTypeScriptOptions>` **directly** (not
+`StructuredGenerator`), since it emits only enums + data classes (no host/flutter
+APIs, codecs, or proxies).
+
+### JSON representation (JSON-native: wire == runtime)
+
+Same shared contract as §3, mapped to TypeScript where **the runtime object IS
+the wire shape** (no rich `Uint8Array`/`Map` types — deferred as future work):
+
+| Dart                                  | TS runtime                 | notes                                    |
+|---------------------------------------|----------------------------|------------------------------------------|
+| `int` / `double`                      | `number`                   | `asInt` (integer-checked) / `asNumber`   |
+| `String` / `bool`                     | `string` / `boolean`       |                                          |
+| `Uint8List`                           | `string`                   | base64                                   |
+| `Int32List`/`Int64List`/`Float64List` | `number[]`                 |                                          |
+| `List<T>`                             | `T[]`                      |                                          |
+| `Map<K,V>`                            | `Record<string, V>`        | keys stringified                         |
+| enum                                  | `'a' \| 'b'` string union  | Dart constant names                      |
+| sealed hierarchy                      | discriminated union        | `type` = class name, emitted first key   |
+| `T?`                                  | `T \| null`                | key always present                       |
+
+- **`fromJson`** validates and throws **`PigeonJsonError`** (fail-fast) on bad
+  input, but **tolerates unknown extra keys** — the contract evolves additively,
+  so an older generated model must be able to read a newer payload. (This is why
+  a strict schema library such as superstruct's `s.object`, which rejects unknown
+  keys, would be wrong here.)
+- **`toJson`** rebuilds the object in **Dart field-declaration order** (`type`
+  first for sealed subclasses), guaranteeing **byte-identical** JSON with
+  Kotlin/Swift/Dart.
+
+### New files — replay as-is on rebase, never conflict
+- `lib/src/typescript/typescript_generator.dart` — `TypeScriptGenerator` plus
+  `TypeScriptOptions` / `InternalTypeScriptOptions`.
+- `lib/src/typescript/typescript_emitter.dart` — the emitter (`writeTypeScript`:
+  prologue validators → enums → classes → sealed unions).
+- `test/typescript_generator_test.dart` — unit tests (**CI gate**).
+- `platform_tests/typescript_test/` — local round-trip harness using Node's
+  built-in `node:test` (**zero deps**; Node runs the generated `.ts` directly via
+  built-in type-stripping — tested on Node 24). Its `gen/*.ts` input is a
+  gitignored, regenerated artifact. A **local** integration check, not a CI gate.
+
+### Additive edits to existing files — the ONLY conflict-prone spots (all small)
+- **`PigeonOptions`** (`lib/src/pigeon_lib.dart`): `typescriptOut` +
+  `typescriptOptions` (constructor, fields, `fromMap`/`toMap`); a
+  `typescript/typescript_generator.dart` import; and `TypeScriptGeneratorAdapter()`
+  in the default adapter list (right after `KotlinGeneratorAdapter()`).
+- **`InternalPigeonOptions`** (`lib/src/pigeon_lib_internal.dart`): a
+  `typescriptOptions` field + a merge block (mirrors the `kotlinOptions` block);
+  the `TypeScriptGeneratorAdapter` class (mirrors `KotlinGeneratorAdapter`); import.
+- `lib/pigeon.dart`: `export 'src/typescript/typescript_generator.dart' show TypeScriptOptions;`.
+- `tool/shared/generation.dart`: a `typescriptOut` param on `runPigeon`, and a
+  `json_kitchen` TypeScript arm emitting the gitignored
+  `platform_tests/typescript_test/gen/json_kitchen.gen.ts`.
+
+### Verify
+- `dart analyze lib`
+- `dart test test/typescript_generator_test.dart`
+- local round-trip: `cd platform_tests/typescript_test && node --test` (regenerate
+  its input via the `json_kitchen` TS arm; needs a recent Node for built-in `.ts`
+  type-stripping).
+
 ## Deliberately NOT changed (avoids guaranteed recurring rebase conflicts)
 `pubspec.yaml` `version`, `lib/src/generator_tools.dart` `pigeonVersion`, and
 `CHANGELOG.md` are left at upstream values. The fork is consumed by git ref, so
