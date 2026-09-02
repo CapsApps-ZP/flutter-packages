@@ -31,6 +31,7 @@ import 'objc/objc_generator.dart';
 import 'pigeon_lib_internal.dart';
 import 'swift/swift_generator.dart';
 import 'types/task_queue.dart';
+import 'typescript/typescript_generator.dart';
 
 export 'types/task_queue.dart' show TaskQueueType;
 
@@ -248,6 +249,8 @@ class PigeonOptions {
     this.swiftOptions,
     this.kotlinOut,
     this.kotlinOptions,
+    this.typescriptOut,
+    this.typescriptOptions,
     this.cppHeaderOut,
     this.cppSourceOut,
     this.cppOptions,
@@ -297,6 +300,12 @@ class PigeonOptions {
 
   /// Options that control how Kotlin will be generated.
   final KotlinOptions? kotlinOptions;
+
+  /// Path to the TypeScript file that will be generated.
+  final String? typescriptOut;
+
+  /// Options that control how TypeScript will be generated.
+  final TypeScriptOptions? typescriptOptions;
 
   /// Path to the ".h" C++ file that will be generated.
   final String? cppHeaderOut;
@@ -366,6 +375,13 @@ class PigeonOptions {
                 map['kotlinOptions']! as Map<String, Object>,
               )
               : null,
+      typescriptOut: map['typescriptOut'] as String?,
+      typescriptOptions:
+          map.containsKey('typescriptOptions')
+              ? TypeScriptOptions.fromMap(
+                map['typescriptOptions']! as Map<String, Object>,
+              )
+              : null,
       cppHeaderOut: map['cppHeaderOut'] as String?,
       cppSourceOut: map['cppSourceOut'] as String?,
       cppOptions:
@@ -408,6 +424,9 @@ class PigeonOptions {
       if (swiftOptions != null) 'swiftOptions': swiftOptions!.toMap(),
       if (kotlinOut != null) 'kotlinOut': kotlinOut!,
       if (kotlinOptions != null) 'kotlinOptions': kotlinOptions!.toMap(),
+      if (typescriptOut != null) 'typescriptOut': typescriptOut!,
+      if (typescriptOptions != null)
+        'typescriptOptions': typescriptOptions!.toMap(),
       if (cppHeaderOut != null) 'cppHeaderOut': cppHeaderOut!,
       if (cppSourceOut != null) 'cppSourceOut': cppSourceOut!,
       if (cppOptions != null) 'cppOptions': cppOptions!.toMap(),
@@ -723,6 +742,7 @@ ${_argParser.usage}''';
           JavaGeneratorAdapter(),
           SwiftGeneratorAdapter(),
           KotlinGeneratorAdapter(),
+          TypeScriptGeneratorAdapter(),
           CppGeneratorAdapter(),
           GObjectGeneratorAdapter(),
           DartTestGeneratorAdapter(),

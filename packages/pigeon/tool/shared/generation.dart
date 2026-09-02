@@ -270,6 +270,24 @@ Future<int> generateTestPigeons({
   if (jsonKitchenDartCode != 0) {
     return jsonKitchenDartCode;
   }
+
+  // TypeScript half of the same kitchen-sink, generated into the local TS
+  // round-trip harness (platform_tests/typescript_test). Byte-identical JSON
+  // from the one contract; zero runtime deps in the emitted code.
+  final String tsOutputBase = p.join(
+    baseDir,
+    'platform_tests',
+    'typescript_test',
+  );
+  final int jsonKitchenTsCode = await runPigeon(
+    input: './pigeons/json_kitchen.dart',
+    dartPackageName: 'pigeon_integration_tests',
+    suppressVersion: true,
+    typescriptOut: p.join(tsOutputBase, 'gen', 'json_kitchen.gen.ts'),
+  );
+  if (jsonKitchenTsCode != 0) {
+    return jsonKitchenTsCode;
+  }
   return 0;
 }
 
@@ -284,6 +302,7 @@ Future<int> runPigeon({
   bool swiftGenerateJson = false,
   String? swiftOut,
   String? swiftErrorClassName,
+  String? typescriptOut,
   String? cppHeaderOut,
   String? cppSourceOut,
   String? cppNamespace,
@@ -362,6 +381,9 @@ Future<int> runPigeon({
         includeErrorClass: kotlinIncludeErrorClass,
         generateJson: kotlinGenerateJson,
       ),
+      typescriptOut: typescriptOut,
+      typescriptOptions:
+          typescriptOut == null ? null : const TypeScriptOptions(),
       objcHeaderOut: objcHeaderOut,
       objcSourceOut: objcSourceOut,
       objcOptions: ObjcOptions(

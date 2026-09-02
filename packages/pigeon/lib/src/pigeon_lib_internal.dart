@@ -27,6 +27,7 @@ import 'kotlin/kotlin_generator.dart';
 import 'objc/objc_generator.dart';
 import 'pigeon_lib.dart';
 import 'swift/swift_generator.dart';
+import 'typescript/typescript_generator.dart';
 
 /// Options used when running the code generator.
 class InternalPigeonOptions {
@@ -37,6 +38,7 @@ class InternalPigeonOptions {
     required this.javaOptions,
     required this.swiftOptions,
     required this.kotlinOptions,
+    this.typescriptOptions,
     required this.cppOptions,
     required this.gobjectOptions,
     required this.dartOptions,
@@ -89,6 +91,14 @@ class InternalPigeonOptions {
               : InternalKotlinOptions.fromKotlinOptions(
                 options.kotlinOptions ?? const KotlinOptions(),
                 kotlinOut: options.kotlinOut!,
+                copyrightHeader: copyrightHeader,
+              ),
+      typescriptOptions =
+          options.typescriptOut == null
+              ? null
+              : InternalTypeScriptOptions.fromTypeScriptOptions(
+                options.typescriptOptions ?? const TypeScriptOptions(),
+                typescriptOut: options.typescriptOut!,
                 copyrightHeader: copyrightHeader,
               ),
       cppOptions =
@@ -165,6 +175,9 @@ class InternalPigeonOptions {
 
   /// Options that control how Kotlin will be generated.
   final InternalKotlinOptions? kotlinOptions;
+
+  /// Options that control how TypeScript will be generated.
+  final InternalTypeScriptOptions? typescriptOptions;
 
   /// Options that control how C++ will be generated.
   final InternalCppOptions? cppOptions;
@@ -688,6 +701,46 @@ class KotlinGeneratorAdapter implements GeneratorAdapter {
   IOSink? shouldGenerate(InternalPigeonOptions options, FileType _) =>
       _openSink(
         options.kotlinOptions?.kotlinOut,
+        basePath: options.basePath ?? '',
+      );
+
+  @override
+  List<Error> validate(InternalPigeonOptions options, Root root) => <Error>[];
+}
+
+/// A [GeneratorAdapter] that generates TypeScript source code.
+class TypeScriptGeneratorAdapter implements GeneratorAdapter {
+  /// Constructor for [TypeScriptGeneratorAdapter].
+  TypeScriptGeneratorAdapter({
+    this.fileTypeList = const <FileType>[FileType.na],
+  });
+
+  @override
+  List<FileType> fileTypeList;
+
+  @override
+  void generate(
+    StringSink sink,
+    InternalPigeonOptions options,
+    Root root,
+    FileType fileType,
+  ) {
+    if (options.typescriptOptions == null) {
+      return;
+    }
+    const TypeScriptGenerator generator = TypeScriptGenerator();
+    generator.generate(
+      options.typescriptOptions!,
+      root,
+      sink,
+      dartPackageName: options.dartPackageName,
+    );
+  }
+
+  @override
+  IOSink? shouldGenerate(InternalPigeonOptions options, FileType _) =>
+      _openSink(
+        options.typescriptOptions?.typescriptOut,
         basePath: options.basePath ?? '',
       );
 
